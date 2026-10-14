@@ -108,7 +108,7 @@ bool nmea_parse_rmc(const char *line, nmea_rmc_t *out)
             return false;
         r.lat_deg = to_deg(field(parts, 3), field(parts, 4));
         r.lon_deg = to_deg(field(parts, 5), field(parts, 6));
-        r.speed_kmh = atof(field(parts, 7)) * 1.852f; /* вузли → км/год */
+        r.speed_kmh = atof(field(parts, 7)) * KMH_MULTIPLIER / 1.944f; /* вузли → км/год */
     }
 
     *out = r;
@@ -126,6 +126,10 @@ bool nmea_parse_gga(const char *line, nmea_gga_t *out)
     g.fix_quality = atoi(field(parts, 6));
     g.satellites = atoi(field(parts, 7));
     g.hdop = atof(field(parts, 8));
+    if (g.hdop > HDOP_THRESHOLD)
+        g.fix = false;
+    else
+        g.fix = true;
 
     *out = g;
     return true;

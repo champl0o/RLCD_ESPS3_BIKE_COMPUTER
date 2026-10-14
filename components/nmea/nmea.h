@@ -3,6 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define HDOP_THRESHOLD 4
+#define KMH_MULTIPLIER 3.6
+
 typedef struct
 {
     bool fix;
@@ -16,6 +19,7 @@ typedef struct
 
 typedef struct
 {
+    bool fix;
     uint8_t fix_quality;
     uint8_t satellites;
     float hdop;

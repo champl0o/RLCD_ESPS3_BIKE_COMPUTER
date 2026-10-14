@@ -20,8 +20,15 @@ typedef struct
     float hdop;
     float speed_kmh;
     double lat, lon;
+
+    double dist_km;
+    double moving_time;
+    double average_speed;
+    double stopped_time;
+
     uint8_t hh, mm, ss;
     uint8_t day, month, year;
+
 } gps_data_t;
 
 esp_err_t gps_init(void);

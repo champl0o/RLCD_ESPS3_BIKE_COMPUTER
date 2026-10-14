@@ -29,6 +29,8 @@ typedef struct
     float hdop;
     double lat_deg, lon_deg;
     float speed_kmh;
+    float max_speed_kmh;
+    double average_speed;
     double dist_m; /* дистанція й час у русі валідні завжди — це накопичене */
     uint32_t moving_s;
 } screen_data_t;

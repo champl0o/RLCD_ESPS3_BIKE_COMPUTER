@@ -16,6 +16,7 @@
 #include "battery.h"
 #include "gps.h"
 #include "button.h"
+#include "trip.h"
 
 #define I2C_SDA_GPIO 13
 #define I2C_SCL_GPIO 14
@@ -89,6 +90,9 @@ static void update_gps(screen_data_t *d, monitor_rtc_t *rtc)
 {
     gps_data_t gps = gps_get();
     d->gps_valid = gps.valid;
+    d->satellites = gps.satellites;
+    d->hdop = gps.hdop;
+
     if (!gps.valid)
         return;
 
@@ -107,8 +111,6 @@ static void update_gps(screen_data_t *d, monitor_rtc_t *rtc)
             d->rtc_synced = true;
     }
 
-    d->satellites = gps.satellites;
-    d->hdop = gps.hdop;
     d->lat_deg = gps.lat;
     d->lon_deg = gps.lon;
     d->speed_kmh = gps.speed_kmh;
@@ -119,6 +121,16 @@ static void update_gps(screen_data_t *d, monitor_rtc_t *rtc)
     d->utc_hh = gps.hh;
     d->utc_mm = gps.mm;
     d->utc_ss = gps.ss;
+
+    double now = esp_timer_get_time() / 1000000.0; // Convert microseconds to seconds
+    trip_update(gps.lat, gps.lon, gps.speed_kmh, now, gps.valid);
+    const trip_t *trip_data = trip_get();
+
+    d->dist_m = trip_data->dist_km * 1000.0; // Convert km to meters
+    d->moving_s = (uint32_t)trip_data->moving_time;
+    d->average_speed = trip_data->average_speed;
+    d->max_speed_kmh = trip_data->max_speed_kmh;
+    // d->stopped_time = trip_data.stopped_time;
 }
 
 void app_main(void)
