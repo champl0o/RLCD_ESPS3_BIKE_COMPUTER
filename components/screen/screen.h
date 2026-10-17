@@ -3,6 +3,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+typedef enum
+{
+    SCREEN_DETAILED = 0,
+    SCREEN_MINIMAL,
+    SCREEN_MAP,
+    SCREEN_COUNT
+} current_screen_t;
+
 /* Дані одного екрана. render() малює лише те, що тут є, і не знає,
  * звідки воно взялося — справжній датчик чи мок. valid-прапорці, щоб
  * відрізнити «0 км/год» від «ще не виміряли». */
@@ -33,11 +41,9 @@ typedef struct
     double average_speed;
     double dist_m; /* дистанція й час у русі валідні завжди — це накопичене */
     uint32_t moving_s;
+    current_screen_t current_screen;
 } screen_data_t;
 
-/* Ініціалізувати дисплей (SPI, ST7305, поворот). */
 void screen_init(void);
 
-/* Намалювати кадр і виштовхнути на панель.
- * Повертає, скільки мікросекунд зайняла передача по SPI. */
-int64_t screen_draw(const screen_data_t *d);
+int64_t screen_draw(const screen_data_t *d, current_screen_t screen);

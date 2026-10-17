@@ -1,7 +1,3 @@
-/*
- * Велокомп: тут лише збирання модулів докупи й основний цикл.
- */
-
 #include <stdbool.h>
 
 #include "freertos/FreeRTOS.h"
@@ -23,8 +19,13 @@
 
 static const char *TAG = "main";
 
-/* Одна шина на всю плату: SHTC3, PCF85063, ES8311, ES7210.
- * Хендл повертаємо назовні — RTC потім додасться на неї ж. */
+static QueueHandle_t event_queue;
+static btn_event_t btn_event;
+static uint32_t frame = 0;
+static screen_data_t data = {0}; /* усі valid = false → на екрані прочерки */
+static current_screen_t current_screen = SCREEN_DETAILED;
+
+/* Одна шина на всю плату: SHTC3, PCF85063, ES8311, ES7210. */
 static i2c_master_bus_handle_t i2c_bus_init(void)
 {
     const i2c_master_bus_config_t cfg = {
@@ -133,6 +134,31 @@ static void update_gps(screen_data_t *d, monitor_rtc_t *rtc)
     // d->stopped_time = trip_data.stopped_time;
 }
 
+static void process_event(btn_event_t *event)
+{
+    if (event->gesture == PRESS_SHORT)
+        current_screen = (current_screen + 1) % SCREEN_COUNT;
+
+    if (event->gesture == PRESS_DOUBLE)
+        current_screen = (current_screen - 1) % SCREEN_COUNT;
+
+    ESP_LOGI(TAG, "current_screen: %d", current_screen);
+}
+
+static void draw_current_screen(void)
+{
+    int64_t dt = screen_draw(&data, current_screen); // draw current later
+
+    if ((frame % 10) == 0)
+    {
+        ESP_LOGI(TAG, "frame %lu: SendBuffer took %lld us (max %.1f fps), %.2f C, %.1f %%RH",
+                 (unsigned long)frame, (long long)dt,
+                 dt > 0 ? 1000000.0 / (double)dt : 0.0,
+                 data.temp_c, data.humidity_pct);
+    }
+    frame++;
+}
+
 void app_main(void)
 {
     screen_init();
@@ -154,9 +180,7 @@ void app_main(void)
 
     gps_init();
 
-    screen_data_t data = {0}; /* усі valid = false → на екрані прочерки */
-    uint32_t frame = 0;
-    button_init();
+    event_queue = button_init();
 
     while (1)
     {
@@ -167,20 +191,15 @@ void app_main(void)
         update_rtc(rtc, &data);
         update_gps(&data, rtc);
 
+        draw_current_screen();
+
         if (gps_poll() == 0)
             ESP_LOGW(TAG, "GPS: no bytes this second — check TX/RX crossover and power");
 
-        int64_t dt = screen_draw(&data);
-
-        if ((frame % 10) == 0)
+        BaseType_t received = xQueueReceive(event_queue, &btn_event, pdMS_TO_TICKS(1000));
+        if (received == pdTRUE)
         {
-            ESP_LOGI(TAG, "frame %lu: SendBuffer took %lld us (max %.1f fps), %.2f C, %.1f %%RH",
-                     (unsigned long)frame, (long long)dt,
-                     dt > 0 ? 1000000.0 / (double)dt : 0.0,
-                     data.temp_c, data.humidity_pct);
+            process_event(&btn_event);
         }
-        frame++;
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

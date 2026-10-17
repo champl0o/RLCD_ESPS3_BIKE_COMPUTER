@@ -2,8 +2,6 @@
 #include "gesture.h"
 
 #include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -139,17 +137,18 @@ static void IRAM_ATTR on_edge(void *arg)
     portYIELD_FROM_ISR(woken);
 }
 
-void button_init(void)
+QueueHandle_t button_init(void)
 {
     button_queue = xQueueCreate(16, sizeof(btn_id_t));
     event_queue = xQueueCreate(16, sizeof(btn_event_t));
 
-    gpio_config_t io_conf = {0};
-    io_conf.intr_type = GPIO_INTR_ANYEDGE;
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = (1ULL << BOOT_PIN) | (1ULL << KEY_PIN);
-    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_ANYEDGE,
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = (1ULL << BOOT_PIN) | (1ULL << KEY_PIN),
+        .pull_down_en = 0,
+        .pull_up_en = 1,
+    };
     gpio_config(&io_conf);
 
     gpio_install_isr_service(0);
@@ -157,4 +156,6 @@ void button_init(void)
     gpio_isr_handler_add(KEY_PIN, on_edge, (void *)(uintptr_t)BTN_KEY);
 
     xTaskCreate(button_task, "button_task", 4096, NULL, 10, NULL);
+
+    return event_queue;
 }
