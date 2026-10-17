@@ -101,7 +101,7 @@ int gps_poll(void)
     if (raw_gps_data() != ESP_OK)
         return 0;
 
-    ESP_LOGI(TAG, "GPS data: %.*s", gps_data_len, gps_data);
+    // ESP_LOGI(TAG, "GPS data: %.*s", gps_data_len, gps_data);
 
     parse_gps_data();
     return gps_data_len;
