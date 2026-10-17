@@ -24,5 +24,9 @@ __pycache__/
 
 *.log
 *.tmp
+
+# except README.md
+!README.md
 *.md
+
 *docs/
