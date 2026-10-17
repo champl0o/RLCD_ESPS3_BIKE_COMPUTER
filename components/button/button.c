@@ -1,40 +1,104 @@
 #include "button.h"
+#include "gesture.h"
+
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+
+#define BOOT_PIN 0
+#define KEY_PIN 18
+
+#define DEBOUNCE_TIME_US (30 * 1000)
 
 static QueueHandle_t button_queue;
+static QueueHandle_t event_queue;
 static const char *TAG = "button";
-#define NO_DEADLINE (-1)
 
 static btn_state_t button_states[BTN_COUNT] =
-    {{.state = IDLE, .deadline_us = NO_DEADLINE},
-     {.state = IDLE, .deadline_us = NO_DEADLINE}};
+    {
+        {.state = IDLE,
+         .debounce_deadline_us = NO_DEADLINE,
+         .gesture_deadline_us = NO_DEADLINE,
+         .btn_id = BTN_BOOT},
+        {
+            .state = IDLE,
+            .debounce_deadline_us = NO_DEADLINE,
+            .gesture_deadline_us = NO_DEADLINE,
+            .btn_id = BTN_KEY,
+        }};
+
+char *gesture_to_string(btn_gesture_t gesture)
+{
+    return gesture == GESTURE_NONE ? "none" : gesture == PRESS_SHORT ? "press_short"
+                                          : gesture == PRESS_LONG    ? "press_long"
+                                          : gesture == PRESS_DOUBLE  ? "press_double"
+                                                                     : "unknown";
+}
+
+static void emit_gesture(btn_id_t id, btn_gesture_t gesture)
+{
+    if (gesture != GESTURE_NONE)
+    {
+        ESP_LOGI(TAG, "Gesture: %s", gesture_to_string(gesture));
+
+        btn_event_t event = {
+            .btn_id = id,
+            .gesture = gesture};
+        xQueueSend(event_queue, &event, 0);
+    }
+}
+
+static btn_gesture_t handle_debounce(btn_state_t *b, int64_t now)
+{
+    bool deadline_passed = (b->debounce_deadline_us != NO_DEADLINE && b->debounce_deadline_us <= now);
+    if (!deadline_passed)
+        return GESTURE_NONE;
+
+    b->debounce_deadline_us = NO_DEADLINE;
+
+    bool pressed = gpio_get_level(b->btn_id == BTN_BOOT ? BOOT_PIN : KEY_PIN) == 0;
+    if (pressed != b->stable)
+    {
+        b->stable = pressed;
+
+        btn_gesture_t gesture = handle_event(b, pressed ? PRESS : RELEASE, now);
+        ESP_LOGI(TAG, "Button %d %s", b->btn_id, pressed ? "pressed" : "released");
+        return gesture;
+    }
+    return GESTURE_NONE;
+}
+
+static btn_gesture_t handle_gesture_deadline(btn_state_t *b, int64_t now)
+{
+    bool gesture_deadline_passed = (b->gesture_deadline_us != NO_DEADLINE && b->gesture_deadline_us <= now);
+    if (gesture_deadline_passed)
+    {
+        return handle_event(b, TIMEOUT, now);
+    }
+    return GESTURE_NONE;
+}
 
 static void handle_button(btn_id_t id, int64_t now)
 {
     btn_state_t *b = &button_states[id];
 
-    if (b->deadline_us == NO_DEADLINE || b->deadline_us > now)
-        return;
+    emit_gesture(id, handle_debounce(b, now));
 
-    // Дедлайн минув: брязкіт скінчився, скидаємо його завжди,
-    // незалежно від того, чи змінився стан.
-    b->deadline_us = NO_DEADLINE;
-
-    bool pressed = gpio_get_level(id == BTN_BOOT ? BOOT_PIN : KEY_PIN) == 0;
-    if (pressed != b->stable)
-    {
-        b->stable = pressed;
-        ESP_LOGI(TAG, "Button %d %s", id, pressed ? "pressed" : "released");
-    }
+    emit_gesture(id, handle_gesture_deadline(b, now));
 }
 
-// Скільки тіків чекати до найближчого дедлайну серед усіх кнопок.
-// Округляємо вгору + 1 тік, щоб після пробудження гарантовано now >= deadline.
 static TickType_t timeout_ticks(int64_t now)
 {
     int64_t next = NO_DEADLINE;
     for (int i = 0; i < BTN_COUNT; i++)
     {
-        int64_t d = button_states[i].deadline_us;
+        int64_t d = button_states[i].debounce_deadline_us;
+        int64_t g = button_states[i].gesture_deadline_us;
+
+        if (g != NO_DEADLINE && (next == NO_DEADLINE || g < next))
+            next = g;
         if (d != NO_DEADLINE && (next == NO_DEADLINE || d < next))
             next = d;
     }
@@ -57,14 +121,12 @@ static void button_task(void *arg)
 
         if (received)
         {
-            button_states[id].deadline_us = now + DEBOUNCE_TIME_US;
+            button_states[id].debounce_deadline_us = now + DEBOUNCE_TIME_US;
         }
-        else
+
+        for (int i = 0; i < BTN_COUNT; i++)
         {
-            for (int i = 0; i < BTN_COUNT; i++)
-            {
-                handle_button((btn_id_t)i, now);
-            }
+            handle_button((btn_id_t)i, now);
         }
     }
 }
@@ -80,6 +142,7 @@ static void IRAM_ATTR on_edge(void *arg)
 void button_init(void)
 {
     button_queue = xQueueCreate(16, sizeof(btn_id_t));
+    event_queue = xQueueCreate(16, sizeof(btn_event_t));
 
     gpio_config_t io_conf = {0};
     io_conf.intr_type = GPIO_INTR_ANYEDGE;
