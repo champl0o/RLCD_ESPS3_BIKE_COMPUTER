@@ -5,8 +5,8 @@
 
 typedef enum
 {
-    SCREEN_DETAILED = 0,
-    SCREEN_MINIMAL,
+    SCREEN_MINIMAL = 0,
+    SCREEN_DETAILED,
     SCREEN_MAP,
     SCREEN_COUNT
 } current_screen_t;

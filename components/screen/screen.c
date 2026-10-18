@@ -5,6 +5,7 @@
 #include "helper.h"
 #include "detailed_screen.h"
 #include "minimal_screen.h"
+#include "map_screen.h"
 
 u8g2_t u8g2;
 
@@ -16,6 +17,9 @@ static void render(const screen_data_t *d, current_screen_t screen)
     {
     case SCREEN_MINIMAL:
         draw_minimal_screen(&u8g2, d);
+        break;
+    case SCREEN_MAP:
+        draw_map_screen(&u8g2, d);
         break;
     case SCREEN_DETAILED:
     default:

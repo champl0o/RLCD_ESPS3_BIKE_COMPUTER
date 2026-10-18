@@ -27,9 +27,51 @@ void draw_row(u8g2_t *u8g2, const char *label, const char *value, int y)
     draw_right(u8g2, value, W - pad, y);
 }
 
+/* Скільки стовпчиків GPS світиться: 0 = немає фіксу. Пороги HDOP — пропозиція
+ * з screens-plan.md §6.1, підібрати на реальній поїздці. */
+static int gps_bars(const screen_data_t *d)
+{
+    if (!d->gps_valid)
+        return 0;
+    if (d->hdop < 2.0f)
+        return 4;
+    if (d->hdop < 5.0f)
+        return 3;
+    if (d->hdop < 10.0f)
+        return 2;
+    return 1;
+}
+
+/* 4 стовпчики 3 px, крок 5, висоти 4/8/12/16 від нижньої лінії (x, y — лівий верх
+ * 16x16). Неактивний стовпчик — «пеньок» 3x2. */
+static void draw_gps_icon(u8g2_t *u8g2, int x, int y, int bars)
+{
+    for (int i = 0; i < 4; i++)
+    {
+        int h = (i < bars) ? 4 * (i + 1) : 2;
+        u8g2_DrawBox(u8g2, x + i * 5, y + 16 - h, 3, h);
+    }
+}
+
+/* Корпус 24x12 з рамкою 2 px, носик 2x6, до 4 суцільних сегментів 3x6 (по 25%).
+ * x, y — лівий верх 26x16; valid == false дає порожній корпус. */
+static void draw_battery_icon(u8g2_t *u8g2, int x, int y, bool valid, int pct)
+{
+    int segs = valid ? (pct + 24) / 25 : 0;
+    if (segs > 4)
+        segs = 4;
+
+    u8g2_DrawFrame(u8g2, x, y + 2, 24, 12);
+    u8g2_DrawFrame(u8g2, x + 1, y + 3, 22, 10);
+    u8g2_DrawBox(u8g2, x + 24, y + 5, 2, 6);
+    for (int i = 0; i < segs; i++)
+        u8g2_DrawBox(u8g2, x + 4 + i * 4, y + 5, 3, 6);
+}
+
 void draw_status_bar(u8g2_t *u8g2, const screen_data_t *d)
 {
     const int W = u8g2_GetDisplayWidth(u8g2);
+    const int icon_y = 4; /* 16 px іконка по центру рядка 24 px */
     char buf[16];
 
     u8g2_DrawBox(u8g2, 0, 0, W, 24);
@@ -40,13 +82,17 @@ void draw_status_bar(u8g2_t *u8g2, const screen_data_t *d)
     else
         snprintf(buf, sizeof(buf), "--:--");
     u8g2_DrawStr(u8g2, 6, 17, buf);
-    snprintf(buf, sizeof(buf), "%u SAT", d->satellites);
-    draw_centered(u8g2, buf, W / 2, 17);
+
+    draw_gps_icon(u8g2, W / 2 - 9, icon_y, gps_bars(d));
+
+    /* число % без знака праворуч, іконка батареї лівіше від нього */
     if (d->battery_valid)
-        snprintf(buf, sizeof(buf), "%d%%", d->battery_pct);
+        snprintf(buf, sizeof(buf), "%d", d->battery_pct);
     else
-        snprintf(buf, sizeof(buf), "--%%");
+        snprintf(buf, sizeof(buf), "--");
     draw_right(u8g2, buf, W - 6, 17);
+    draw_battery_icon(u8g2, W - 6 - u8g2_GetStrWidth(u8g2, buf) - 4 - 26, icon_y,
+                      d->battery_valid, d->battery_pct);
     u8g2_SetDrawColor(u8g2, 1);
 }
 

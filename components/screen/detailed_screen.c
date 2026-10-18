@@ -58,7 +58,11 @@ void draw_detailed_screen(u8g2_t *u8g2, const screen_data_t *d)
 
     u8g2_DrawHLine(u8g2, 16, y - 20, W - 32); /* середовище зверху, GPS знизу */
 
-    draw_row(u8g2, "GPS", d->gps_valid ? "FIX" : "NO FIX", y);
+    if (d->gps_valid)
+        snprintf(buf, sizeof(buf), "FIX  %u SAT", d->satellites);
+    else
+        snprintf(buf, sizeof(buf), "NO FIX");
+    draw_row(u8g2, "GPS", buf, y);
     y += row_h;
 
     if (d->gps_valid)

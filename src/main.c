@@ -23,7 +23,7 @@ static QueueHandle_t event_queue;
 static btn_event_t btn_event;
 static uint32_t frame = 0;
 static screen_data_t data = {0}; /* усі valid = false → на екрані прочерки */
-static current_screen_t current_screen = SCREEN_DETAILED;
+static current_screen_t current_screen = SCREEN_MINIMAL;
 
 /* Одна шина на всю плату: SHTC3, PCF85063, ES8311, ES7210. */
 static i2c_master_bus_handle_t i2c_bus_init(void)
@@ -136,11 +136,11 @@ static void update_gps(screen_data_t *d, monitor_rtc_t *rtc)
 
 static void process_event(btn_event_t *event)
 {
-    if (event->gesture == PRESS_SHORT)
+    if (event->btn_id == BTN_KEY && event->gesture == PRESS_SHORT)
         current_screen = (current_screen + 1) % SCREEN_COUNT;
 
-    if (event->gesture == PRESS_DOUBLE)
-        current_screen = (current_screen - 1) % SCREEN_COUNT;
+    if (event->btn_id == BTN_BOOT)
+        current_screen = SCREEN_MINIMAL;
 
     ESP_LOGI(TAG, "current_screen: %d", current_screen);
 }
