@@ -7,4 +7,4 @@ FILE(GLOB_RECURSE app_sources ${CMAKE_SOURCE_DIR}/src/*.*)
 # src/ is not one, so list what main.c includes.
 idf_component_register(SRCS ${app_sources}
                        REQUIRES freertos esp_timer log esp_driver_i2c
-                                screen shtc3 monitor_rtc battery gps button trip ble_sensors)
+                                screen shtc3 monitor_rtc battery gps button trip ble_sensors sdcard)
