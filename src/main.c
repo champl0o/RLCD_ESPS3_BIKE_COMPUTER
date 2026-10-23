@@ -13,6 +13,7 @@
 #include "gps.h"
 #include "button.h"
 #include "trip.h"
+#include "ble_sensors.h"
 
 #define I2C_SDA_GPIO 13
 #define I2C_SCL_GPIO 14
@@ -179,6 +180,8 @@ void app_main(void)
         ESP_LOGW(TAG, "Battery ADC init failed, battery will show dashes");
 
     gps_init();
+
+    ble_sensors_init();
 
     event_queue = button_init();
 
