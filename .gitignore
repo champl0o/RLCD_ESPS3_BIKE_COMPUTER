@@ -30,3 +30,6 @@ __pycache__/
 !README.md
 
 *docs/
+
+compile_commands.json
+.cache/

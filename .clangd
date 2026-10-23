@@ -1,0 +1,7 @@
+CompileFlags:
+  # clang's xtensa target doesn't predefine __XTENSA__, which xtensa/config/core.h needs to find hal.h
+  # gcc include dir: this esp-clangd install ships without lib/clang/21/include (stdbool.h, float.h, ...)
+  Add: [-D__XTENSA__, -isystem, /Users/romanpodilka/.espressif/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/15.2.0/include]
+  Remove: [-mlongcalls, -mtext-section-literals, -fstrict-volatile-bitfields, -fno-tree-switch-conversion, -fno-shrink-wrap, -mfix-esp32-psram-cache-issue, -mdisable-hardware-atomics, -fno-jump-tables, -fmacro-prefix-map=*, -fdiagnostics-color=*, -fzero-init-padding-bits=*, -fno-malloc-dce]
+Diagnostics:
+  Suppress: [pp_including_mainfile_in_preamble]

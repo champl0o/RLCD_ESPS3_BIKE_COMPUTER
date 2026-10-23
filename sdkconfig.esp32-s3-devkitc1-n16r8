@@ -2932,7 +2932,7 @@ CONFIG_FATFS_VOLUME_COUNT=2
 # default:
 CONFIG_FATFS_LFN_NONE=y
 # default:
-# CONFIG_FATFS_LFN_HEAP is not set
+CONFIG_FATFS_LFN_HEAP=y
 # default:
 # CONFIG_FATFS_LFN_STACK is not set
 # default:
