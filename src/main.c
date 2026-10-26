@@ -1,6 +1,7 @@
 #include <stdbool.h>
 
 #include "driver/i2c_master.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -175,7 +176,9 @@ void app_main(void) {
   gps_init();
 
   ble_sensors_init();
-  sd_card_mount();
+
+  if (sd_card_mount() != ESP_OK)
+    ESP_LOGW(TAG, "SD card mount failed");
 
   event_queue = button_init();
 
@@ -186,6 +189,7 @@ void app_main(void) {
     update_battery(battery, &data);
     update_rtc(rtc, &data);
     update_gps(&data, rtc);
+    data.sd_mounted = sd_card_is_mounted();
 
     draw_current_screen();
 

@@ -91,6 +91,40 @@ static void draw_gps_icon(u8g2_t *u8g2, int x, int y, int bars)
     }
 }
 
+/* Картка microSD 12x16 (x, y — лівий верх 16x16). mounted: суцільна з контактами;
+ * інакше контур + діагональ. Контакти й ореол малюються кольором, протилежним до поточного. */
+static void draw_sd_icon(u8g2_t *u8g2, int x, int y, bool mounted)
+{
+    const uint8_t fg = u8g2->draw_color;
+    const uint8_t bg = !fg;
+
+    if (mounted)
+    {
+        u8g2_DrawBox(u8g2, x + 2, y, 8, 16);
+        u8g2_DrawBox(u8g2, x + 10, y + 4, 4, 12);
+        for (int i = 0; i < 4; i++) /* зрізаний кут */
+            u8g2_DrawHLine(u8g2, x + 10, y + i, i + 1);
+        u8g2_SetDrawColor(u8g2, bg);
+        for (int cx = 4; cx <= 8; cx += 2) /* 3 контакти */
+            u8g2_DrawVLine(u8g2, x + cx, y + 2, 5);
+        u8g2_SetDrawColor(u8g2, fg);
+    }
+    else
+    {
+        u8g2_DrawHLine(u8g2, x + 2, y, 9);
+        u8g2_DrawLine(u8g2, x + 10, y, x + 13, y + 3);
+        u8g2_DrawVLine(u8g2, x + 13, y + 3, 13);
+        u8g2_DrawHLine(u8g2, x + 2, y + 15, 12);
+        u8g2_DrawVLine(u8g2, x + 2, y, 16);
+        u8g2_SetDrawColor(u8g2, bg); /* ореол під діагоналлю */
+        for (int d = -1; d <= 1; d++)
+            u8g2_DrawLine(u8g2, x + 1, y + 15 + d, x + 14, y + 2 + d);
+        u8g2_SetDrawColor(u8g2, fg);
+        u8g2_DrawLine(u8g2, x + 1, y + 15, x + 14, y + 2);
+        u8g2_DrawLine(u8g2, x + 1, y + 14, x + 14, y + 1);
+    }
+}
+
 /* Корпус 24x12 з рамкою 2 px, носик 2x6, до 4 суцільних сегментів 3x6 (по 25%).
  * x, y — лівий верх 26x16; valid == false дає порожній корпус. */
 static void draw_battery_icon(u8g2_t *u8g2, int x, int y, bool valid, int pct)
@@ -215,6 +249,8 @@ void draw_status_bar(u8g2_t *u8g2, const screen_data_t *d)
         u8g2_DrawStr(u8g2, W / 2 + 16, 16, buf);
         u8g2_SetFont(u8g2, u8g2_font_helvB12_tr);
     }
+
+    draw_sd_icon(u8g2, 200, icon_y, d->sd_mounted);
 
     /* число % без знака праворуч, іконка батареї лівіше від нього */
     if (d->battery_valid)

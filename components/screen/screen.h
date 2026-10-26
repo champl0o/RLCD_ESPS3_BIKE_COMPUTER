@@ -25,6 +25,8 @@ typedef struct
     float humidity_pct;
     uint32_t uptime_s;
 
+    bool sd_mounted;
+
     bool rtc_valid;
     uint8_t rtc_hour, rtc_min, rtc_sec, rtc_day, rtc_month, rtc_year;
 
