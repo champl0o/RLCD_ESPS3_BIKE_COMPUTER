@@ -10,6 +10,7 @@
 #include "battery.h"
 #include "ble_sensors.h"
 #include "button.h"
+#include "event_orchestrator.h"
 #include "gps.h"
 #include "monitor_rtc.h"
 #include "screen.h"
@@ -27,6 +28,7 @@ static btn_event_t btn_event;
 static uint32_t frame = 0;
 static screen_data_t data = {0}; /* усі valid = false → на екрані прочерки */
 static current_screen_t current_screen = SCREEN_MINIMAL;
+static esp_event_loop_handle_t loop_handle;
 
 /* Одна шина на всю плату: SHTC3, PCF85063, ES8311, ES7210. */
 static i2c_master_bus_handle_t i2c_bus_init(void) {
@@ -153,8 +155,41 @@ static void draw_current_screen(void) {
   frame++;
 }
 
+static void on_gps_data(const gps_data_t *data) {
+  esp_err_t err =
+      esp_event_post_to(loop_handle, APP_EVENT_ORCHESTRATOR, EVT_GPS_UPDATED,
+                        (void *)data, sizeof(gps_data_t), 0);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to post GPS event: %s", esp_err_to_name(err));
+  }
+}
+
+static void on_gps_event(void *handler_arg, esp_event_base_t base, int32_t id,
+                         void *event_data) {
+  if (id == EVT_GPS_UPDATED) {
+    gps_data_t *gps_data = (gps_data_t *)event_data;
+    ESP_LOGI(TAG, "GPS updated: lat=%.6f, lon=%.6f, speed=%.2f km/h",
+             gps_data->lat, gps_data->lon, gps_data->speed_kmh);
+  }
+}
+
+void initialize_event_orchestrator(void) {
+  esp_err_t err = event_orchestrator_init();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to initialize event orchestrator: %s",
+             esp_err_to_name(err));
+    return;
+  }
+
+  loop_handle = event_orchestrator_get_loop();
+
+  event_orchestrator_add_event_handler(APP_EVENT_ORCHESTRATOR, EVT_GPS_UPDATED,
+                                       on_gps_event, NULL);
+}
+
 void app_main(void) {
   screen_init();
+  initialize_event_orchestrator();
 
   i2c_master_bus_handle_t bus = i2c_bus_init();
   static shtc3_t shtc3_dev;
@@ -173,7 +208,7 @@ void app_main(void) {
   if (!battery)
     ESP_LOGW(TAG, "Battery ADC init failed, battery will show dashes");
 
-  gps_init();
+  gps_start(on_gps_data);
 
   ble_sensors_init();
 
@@ -192,10 +227,6 @@ void app_main(void) {
     data.sd_mounted = sd_card_is_mounted();
 
     draw_current_screen();
-
-    if (gps_poll() == 0)
-      ESP_LOGW(TAG,
-               "GPS: no bytes this second — check TX/RX crossover and power");
 
     BaseType_t received =
         xQueueReceive(event_queue, &btn_event, pdMS_TO_TICKS(1000));
