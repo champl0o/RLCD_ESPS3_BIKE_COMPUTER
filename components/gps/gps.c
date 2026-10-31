@@ -1,5 +1,4 @@
 #include "gps.h"
-#include <stdlib.h>
 
 static const char *TAG = "gps";
 
