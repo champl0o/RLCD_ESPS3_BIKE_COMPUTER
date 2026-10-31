@@ -6,7 +6,8 @@
 #include <stdint.h>
 
 bool sd_card_is_mounted(void);
-esp_err_t sd_card_mount(void);
+typedef void (*sd_card_mounted_callback_t)(void *arg);
+esp_err_t sd_card_mount(sd_card_mounted_callback_t callback);
 esp_err_t sd_card_unmount(void);
 
 /* Reads exactly buffer_size bytes; a shorter file is an error. */

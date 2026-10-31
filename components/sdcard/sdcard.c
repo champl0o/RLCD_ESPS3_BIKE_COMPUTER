@@ -59,7 +59,7 @@ static esp_err_t is_file_errored(FILE *file) {
 
 bool sd_card_is_mounted(void) { return sd_card_config.initialized_correctly; }
 
-esp_err_t sd_card_mount(void) {
+esp_err_t sd_card_mount(sd_card_mounted_callback_t callback) {
   if (sd_card_is_mounted())
     return ESP_OK;
 
@@ -80,11 +80,18 @@ esp_err_t sd_card_mount(void) {
                                           &mount_cfg, &sdcard_host);
   ESP_ERROR_CHECK_WITHOUT_ABORT(ret);
   if (ret != ESP_OK) {
+    if (callback) {
+      callback(NULL);
+    }
     return ret;
   }
   ESP_LOGI(TAG, "SD card mounted successfully.");
 
   sd_card_config.initialized_correctly = true;
+
+  if (callback) {
+    callback(NULL);
+  }
 
   return ESP_OK;
 }

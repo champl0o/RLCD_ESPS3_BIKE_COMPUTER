@@ -2,6 +2,7 @@
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
+#include "esp_event.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -202,6 +203,25 @@ static void on_gps_event(void *handler_arg, esp_event_base_t base, int32_t id,
   }
 }
 
+static void on_sd_card_mounted(void *arg) {
+  esp_err_t err = esp_event_post_to(loop_handle, APP_EVENT_ORCHESTRATOR,
+                                    EVT_SD_MOUNTED, NULL, 0, 0);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to post SD card event: %s", esp_err_to_name(err));
+  }
+}
+
+static void on_sd_card_event(void *handler_arg, esp_event_base_t base,
+                             int32_t id, void *event_data) {
+  if (id == EVT_SD_MOUNTED) {
+    bool sd_mounted = sd_card_is_mounted();
+
+    xSemaphoreTake(data_mutex, portMAX_DELAY);
+    data.sd_mounted = sd_mounted;
+    xSemaphoreGive(data_mutex);
+  }
+}
+
 void initialize_event_orchestrator(void) {
   esp_err_t err = event_orchestrator_init();
   if (err != ESP_OK) {
@@ -214,6 +234,8 @@ void initialize_event_orchestrator(void) {
 
   event_orchestrator_add_event_handler(APP_EVENT_ORCHESTRATOR, EVT_GPS_UPDATED,
                                        on_gps_event, NULL);
+  event_orchestrator_add_event_handler(APP_EVENT_ORCHESTRATOR, EVT_SD_MOUNTED,
+                                       on_sd_card_event, NULL);
 }
 
 static esp_err_t create_data_mutex(void) {
@@ -253,8 +275,7 @@ void app_main(void) {
 
   ble_sensors_init();
 
-  if (sd_card_mount() != ESP_OK)
-    ESP_LOGW(TAG, "SD card mount failed");
+  sd_card_mount(on_sd_card_mounted);
 
   event_queue = button_init();
 
@@ -264,7 +285,6 @@ void app_main(void) {
     update_climate(shtc3, &data);
     update_battery(battery, &data);
     update_rtc(rtc, &data);
-    data.sd_mounted = sd_card_is_mounted();
 
     draw_current_screen();
 
