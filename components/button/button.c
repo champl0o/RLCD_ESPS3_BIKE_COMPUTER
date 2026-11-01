@@ -1,6 +1,6 @@
 #include "button.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
-
 #include "gesture.h"
 
 #include "driver/gpio.h"

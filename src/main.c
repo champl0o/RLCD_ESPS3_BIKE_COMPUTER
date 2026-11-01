@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include "button_types.h"
 #include "driver/i2c_master.h"
@@ -331,14 +332,15 @@ void app_main(void) {
   button_init(on_button_callback);
 
   while (1) {
-    data.uptime_s = (uint32_t)(esp_timer_get_time() / 1000000LL);
-
-    update_climate(shtc3, &data);
-    update_battery(battery, &data);
-    update_rtc(rtc, &data);
-
     draw_current_screen();
 
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+    data.uptime_s = (uint32_t)(esp_timer_get_time() / 1000000LL);
+
+    uint32_t woken = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+    if (woken == 0) {
+      update_climate(shtc3, &data);
+      update_battery(battery, &data);
+      update_rtc(rtc, &data);
+    }
   }
 }
