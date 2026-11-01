@@ -1,9 +1,8 @@
 #pragma once
 
 #include "button_types.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-QueueHandle_t button_init(void);
+typedef void (*button_callback_t)(btn_event_t event);
+void button_init(button_callback_t callback);

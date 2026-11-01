@@ -1,12 +1,13 @@
 #include <stdbool.h>
+#include <stdint.h>
 
+#include "button_types.h"
 #include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 
 #include "battery.h"
@@ -26,15 +27,24 @@
 
 static const char *TAG = "main";
 
-static SemaphoreHandle_t data_mutex;
-static QueueHandle_t event_queue;
-static btn_event_t btn_event;
+// screen
+static screen_data_t data = {0};
 static uint32_t frame = 0;
-static screen_data_t data = {0}; /* усі valid = false → на екрані прочерки */
-static current_screen_t current_screen = SCREEN_MINIMAL;
+
+// rtos-related synchronization primitives and event handling
+static SemaphoreHandle_t data_mutex;
+static TaskHandle_t ui_task_handle;
+
 static esp_event_loop_handle_t loop_handle;
 
 static monitor_rtc_t *rtc = NULL;
+
+static void init_screen(void) {
+  screen_init();
+  data.current_screen = SCREEN_MINIMAL;
+
+  ui_task_handle = xTaskGetCurrentTaskHandle();
+}
 
 /* Одна шина на всю плату: SHTC3, PCF85063, ES8311, ES7210. */
 static i2c_master_bus_handle_t i2c_bus_init(void) {
@@ -46,19 +56,20 @@ static i2c_master_bus_handle_t i2c_bus_init(void) {
       .glitch_ignore_cnt = 7,
       .flags.enable_internal_pullup = true,
   };
+
   i2c_master_bus_handle_t bus;
   ESP_ERROR_CHECK(i2c_new_master_bus(&cfg, &bus));
+
   return bus;
 }
 
-/* NULL замість датчика = його немає, на екрані лишаються прочерки. */
 static void update_climate(shtc3_t *shtc3, screen_data_t *d) {
   if (!shtc3)
     return;
-  /* Невдале читання гасить valid — інакше на екрані висіло б
-   * старе значення, ніби свіже. */
+
   esp_err_t err = shtc3_read(shtc3, &d->temp_c, &d->humidity_pct);
   d->temp_valid = d->humidity_valid = (err == ESP_OK);
+
   if (err != ESP_OK)
     ESP_LOGW(TAG, "SHTC3 read failed: %s", esp_err_to_name(err));
 }
@@ -66,8 +77,10 @@ static void update_climate(shtc3_t *shtc3, screen_data_t *d) {
 static void update_battery(battery_t *battery, screen_data_t *d) {
   if (!battery)
     return;
+
   int mv;
   d->battery_valid = battery_read_mv(battery, &mv) == ESP_OK;
+
   if (d->battery_valid) {
     d->battery_mv = mv;
     d->battery_pct = battery_percent_from_mv(mv);
@@ -139,23 +152,14 @@ static void update_gps(screen_data_t *d, const gps_data_t *gps) {
   d->utc_ss = gps->ss;
 }
 
-static void process_event(btn_event_t *event) {
-  if (event->btn_id == BTN_KEY && event->gesture == PRESS_SHORT)
-    current_screen = (current_screen + 1) % SCREEN_COUNT;
-
-  if (event->btn_id == BTN_BOOT)
-    current_screen = SCREEN_MINIMAL;
-
-  ESP_LOGI(TAG, "current_screen: %d", current_screen);
-}
-
 static void draw_current_screen(void) {
   screen_data_t snapshot;
   xSemaphoreTake(data_mutex, portMAX_DELAY);
-  snapshot = data; // copy the shared data to a local snapshot
+  snapshot = data;
   xSemaphoreGive(data_mutex);
 
-  int64_t dt = screen_draw(&snapshot, current_screen); // draw current later
+  int64_t dt =
+      screen_draw(&snapshot, snapshot.current_screen); // draw current later
 
   if ((frame % 10) == 0) {
     ESP_LOGI(
@@ -198,6 +202,9 @@ static void on_gps_event(void *handler_arg, esp_event_base_t base, int32_t id,
     xSemaphoreGive(data_mutex);
 
     // d->stopped_time = trip_data.stopped_time;
+
+    xTaskNotifyGive(ui_task_handle); // Notify the UI task to redraw the screen
+
     ESP_LOGI(TAG, "GPS updated: lat=%.6f, lon=%.6f, speed=%.2f km/h",
              gps_data->lat, gps_data->lon, gps_data->speed_kmh);
   }
@@ -222,6 +229,47 @@ static void on_sd_card_event(void *handler_arg, esp_event_base_t base,
   }
 }
 
+static void on_button_callback(btn_event_t event) {
+  esp_err_t err = esp_event_post_to(loop_handle, APP_EVENT_ORCHESTRATOR,
+                                    EVT_BUTTON, &event, sizeof(btn_event_t), 0);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to post button event: %s", esp_err_to_name(err));
+  }
+}
+
+static void on_button_event(void *handler_arg, esp_event_base_t base,
+                            int32_t id, void *event_data) {
+  if (id == EVT_BUTTON) {
+    btn_event_t *event = (btn_event_t *)event_data;
+
+    current_screen_t local_current_screen;
+    xSemaphoreTake(data_mutex, portMAX_DELAY);
+    local_current_screen = data.current_screen;
+    xSemaphoreGive(data_mutex);
+
+    if (event->btn_id == BTN_KEY && event->gesture == PRESS_SHORT) {
+      xSemaphoreTake(data_mutex, portMAX_DELAY);
+      data.current_screen = (data.current_screen + 1) % SCREEN_COUNT;
+      xSemaphoreGive(data_mutex);
+    }
+
+    if (event->btn_id == BTN_BOOT) {
+      xSemaphoreTake(data_mutex, portMAX_DELAY);
+      data.current_screen = SCREEN_MINIMAL;
+      xSemaphoreGive(data_mutex);
+    }
+
+    if (local_current_screen != data.current_screen) {
+      xTaskNotifyGive(
+          ui_task_handle); // Notify the UI task to redraw the screen
+
+      xSemaphoreTake(data_mutex, portMAX_DELAY);
+      ESP_LOGI(TAG, "Screen changed to %d", data.current_screen);
+      xSemaphoreGive(data_mutex);
+    }
+  }
+}
+
 void initialize_event_orchestrator(void) {
   esp_err_t err = event_orchestrator_init();
   if (err != ESP_OK) {
@@ -236,6 +284,8 @@ void initialize_event_orchestrator(void) {
                                        on_gps_event, NULL);
   event_orchestrator_add_event_handler(APP_EVENT_ORCHESTRATOR, EVT_SD_MOUNTED,
                                        on_sd_card_event, NULL);
+  event_orchestrator_add_event_handler(APP_EVENT_ORCHESTRATOR, EVT_BUTTON,
+                                       on_button_event, NULL);
 }
 
 static esp_err_t create_data_mutex(void) {
@@ -248,7 +298,8 @@ static esp_err_t create_data_mutex(void) {
 }
 
 void app_main(void) {
-  screen_init();
+  init_screen();
+
   initialize_event_orchestrator();
 
   esp_err_t err = create_data_mutex();
@@ -277,7 +328,7 @@ void app_main(void) {
 
   sd_card_mount(on_sd_card_mounted);
 
-  event_queue = button_init();
+  button_init(on_button_callback);
 
   while (1) {
     data.uptime_s = (uint32_t)(esp_timer_get_time() / 1000000LL);
@@ -288,10 +339,6 @@ void app_main(void) {
 
     draw_current_screen();
 
-    BaseType_t received =
-        xQueueReceive(event_queue, &btn_event, pdMS_TO_TICKS(1000));
-    if (received == pdTRUE) {
-      process_event(&btn_event);
-    }
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
   }
 }

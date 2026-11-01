@@ -1,4 +1,6 @@
 #include "button.h"
+#include "freertos/queue.h"
+
 #include "gesture.h"
 
 #include "driver/gpio.h"
@@ -11,7 +13,7 @@
 #define DEBOUNCE_TIME_US (30 * 1000)
 
 static QueueHandle_t button_queue;
-static QueueHandle_t event_queue;
+static button_callback_t button_callback;
 static const char *TAG = "button";
 
 static btn_state_t button_states[BTN_COUNT] = {
@@ -39,7 +41,9 @@ static void emit_gesture(btn_id_t id, btn_gesture_t gesture) {
     ESP_LOGI(TAG, "Gesture: %s", gesture_to_string(gesture));
 
     btn_event_t event = {.btn_id = id, .gesture = gesture};
-    xQueueSend(event_queue, &event, 0);
+    if (button_callback) {
+      button_callback(event);
+    }
   }
 }
 
@@ -124,9 +128,8 @@ static void IRAM_ATTR on_edge(void *arg) {
   portYIELD_FROM_ISR(woken);
 }
 
-QueueHandle_t button_init(void) {
+void button_init(button_callback_t callback) {
   button_queue = xQueueCreate(16, sizeof(btn_id_t));
-  event_queue = xQueueCreate(16, sizeof(btn_event_t));
 
   gpio_config_t io_conf = {
       .intr_type = GPIO_INTR_ANYEDGE,
@@ -137,11 +140,11 @@ QueueHandle_t button_init(void) {
   };
   gpio_config(&io_conf);
 
+  button_callback = callback;
+
   gpio_install_isr_service(0);
   gpio_isr_handler_add(BOOT_PIN, on_edge, (void *)(uintptr_t)BTN_BOOT);
   gpio_isr_handler_add(KEY_PIN, on_edge, (void *)(uintptr_t)BTN_KEY);
 
   xTaskCreate(button_task, "button_task", 4096, NULL, 10, NULL);
-
-  return event_queue;
 }
