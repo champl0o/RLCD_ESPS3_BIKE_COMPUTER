@@ -18,6 +18,7 @@
 #include "freertos/semphr.h"
 #include "gps.h"
 #include "monitor_rtc.h"
+#include "portmacro.h"
 #include "screen.h"
 #include "sdcard.h"
 #include "shtc3.h"
@@ -26,7 +27,15 @@
 #define I2C_SDA_GPIO 13
 #define I2C_SCL_GPIO 14
 
+#define NEXT_CLIMATE_DELAY_US 10000000 // 10 seconds
+#define NEXT_RTC_DELAY_US 1000000      // 1 second
+#define NEXT_BATTERY_DELAY_US 5000000  // 5 seconds
+
 static const char *TAG = "main";
+
+static esp_timer_handle_t climate_timer;
+static esp_timer_handle_t rtc_timer;
+static esp_timer_handle_t battery_timer;
 
 // screen
 static screen_data_t data = {0};
@@ -39,6 +48,8 @@ static TaskHandle_t ui_task_handle;
 static esp_event_loop_handle_t loop_handle;
 
 static monitor_rtc_t *rtc = NULL;
+static shtc3_t *shtc3 = NULL;
+static battery_t *battery = NULL;
 
 static void init_screen(void) {
   screen_init();
@@ -64,28 +75,45 @@ static i2c_master_bus_handle_t i2c_bus_init(void) {
   return bus;
 }
 
-static void update_climate(shtc3_t *shtc3, screen_data_t *d) {
+static void update_climate(void *arg) {
   if (!shtc3)
     return;
 
-  esp_err_t err = shtc3_read(shtc3, &d->temp_c, &d->humidity_pct);
-  d->temp_valid = d->humidity_valid = (err == ESP_OK);
+  float temp_c, humidity_pct;
+  esp_err_t err = shtc3_read(shtc3, &temp_c, &humidity_pct);
+
+  xSemaphoreTake(data_mutex, portMAX_DELAY);
+  data.temp_valid = data.humidity_valid = (err == ESP_OK);
+  if (data.temp_valid) {
+    data.temp_c = temp_c;
+    data.humidity_pct = humidity_pct;
+  }
+  xSemaphoreGive(data_mutex);
+
+  xTaskNotifyGive(ui_task_handle);
 
   if (err != ESP_OK)
     ESP_LOGW(TAG, "SHTC3 read failed: %s", esp_err_to_name(err));
 }
 
-static void update_battery(battery_t *battery, screen_data_t *d) {
+static void update_battery(void *arg) {
   if (!battery)
     return;
 
   int mv;
-  d->battery_valid = battery_read_mv(battery, &mv) == ESP_OK;
 
-  if (d->battery_valid) {
-    d->battery_mv = mv;
-    d->battery_pct = battery_percent_from_mv(mv);
+  bool valid = battery_read_mv(battery, &mv) == ESP_OK;
+  int pct = valid ? battery_percent_from_mv(mv) : -1;
+  xSemaphoreTake(data_mutex, portMAX_DELAY);
+  data.battery_valid = valid;
+
+  if (data.battery_valid) {
+    data.battery_mv = mv;
+    data.battery_pct = pct;
   }
+  xSemaphoreGive(data_mutex);
+
+  xTaskNotifyGive(ui_task_handle);
 }
 
 static void set_date_time_from_gps() {
@@ -94,7 +122,12 @@ static void set_date_time_from_gps() {
 
   struct tm now = {0};
 
-  if (!data.rtc_synced && data.gps_valid) {
+  xSemaphoreTake(data_mutex, portMAX_DELAY);
+  bool rtc_was_synced = data.rtc_synced;
+  bool gps_was_valid = data.gps_valid;
+  xSemaphoreGive(data_mutex);
+
+  if (!rtc_was_synced && gps_was_valid) {
     xSemaphoreTake(data_mutex, portMAX_DELAY);
     now.tm_year = data.utc_year + 100; // years since 1900
     now.tm_mon = data.utc_month - 1;   // months since January
@@ -108,26 +141,33 @@ static void set_date_time_from_gps() {
     if (err != ESP_OK)
       ESP_LOGW(TAG, "Failed to set RTC time: %s", esp_err_to_name(err));
 
+    xSemaphoreTake(data_mutex, portMAX_DELAY);
     data.rtc_synced = (err == ESP_OK);
+    xSemaphoreGive(data_mutex);
   }
 }
 
-static void update_rtc(monitor_rtc_t *rtc, screen_data_t *d) {
+static void update_rtc(void *arg) {
   if (!rtc)
     return;
 
   set_date_time_from_gps(); // Set RTC from GPS if valid
   struct tm now;
   esp_err_t err = monitor_rtc_get_time(rtc, &now);
-  d->rtc_valid = (err == ESP_OK);
-  if (d->rtc_valid) {
-    d->rtc_hour = now.tm_hour;
-    d->rtc_min = now.tm_min;
-    d->rtc_sec = now.tm_sec;
-    d->rtc_day = now.tm_mday;
-    d->rtc_month = now.tm_mon + 1;
-    d->rtc_year = now.tm_year % 100;
+
+  xSemaphoreTake(data_mutex, portMAX_DELAY);
+  data.rtc_valid = (err == ESP_OK);
+  if (data.rtc_valid) {
+    data.rtc_hour = now.tm_hour;
+    data.rtc_min = now.tm_min;
+    data.rtc_sec = now.tm_sec;
+    data.rtc_day = now.tm_mday;
+    data.rtc_month = now.tm_mon + 1;
+    data.rtc_year = now.tm_year % 100;
   }
+  xSemaphoreGive(data_mutex);
+
+  xTaskNotifyGive(ui_task_handle);
   if (err != ESP_OK)
     ESP_LOGW(TAG, "RTC read failed: %s", esp_err_to_name(err));
 }
@@ -158,6 +198,8 @@ static void draw_current_screen(void) {
   xSemaphoreTake(data_mutex, portMAX_DELAY);
   snapshot = data;
   xSemaphoreGive(data_mutex);
+
+  snapshot.uptime_s = (uint32_t)(esp_timer_get_time() / 1000000LL);
 
   int64_t dt =
       screen_draw(&snapshot, snapshot.current_screen); // draw current later
@@ -209,6 +251,37 @@ static void on_gps_event(void *handler_arg, esp_event_base_t base, int32_t id,
     ESP_LOGI(TAG, "GPS updated: lat=%.6f, lon=%.6f, speed=%.2f km/h",
              gps_data->lat, gps_data->lon, gps_data->speed_kmh);
   }
+}
+
+static void initialize_timers(void) {
+  const esp_timer_create_args_t climate_timer_args = {
+      .callback = update_climate,
+      .name = "climate_timer",
+  };
+
+  const esp_timer_create_args_t rtc_timer_args = {
+      .callback = update_rtc,
+      .name = "rtc_timer",
+  };
+
+  const esp_timer_create_args_t battery_timer_args = {
+      .callback = update_battery,
+      .name = "battery_timer",
+  };
+
+  update_climate(NULL);
+  update_rtc(NULL);
+  update_battery(NULL);
+
+  ESP_ERROR_CHECK(esp_timer_create(&climate_timer_args, &climate_timer));
+  ESP_ERROR_CHECK(esp_timer_create(&rtc_timer_args, &rtc_timer));
+  ESP_ERROR_CHECK(esp_timer_create(&battery_timer_args, &battery_timer));
+
+  ESP_ERROR_CHECK(
+      esp_timer_start_periodic(climate_timer, NEXT_CLIMATE_DELAY_US));
+  ESP_ERROR_CHECK(esp_timer_start_periodic(rtc_timer, NEXT_RTC_DELAY_US));
+  ESP_ERROR_CHECK(
+      esp_timer_start_periodic(battery_timer, NEXT_BATTERY_DELAY_US));
 }
 
 static void on_sd_card_mounted(void *arg) {
@@ -309,7 +382,7 @@ void app_main(void) {
 
   i2c_master_bus_handle_t bus = i2c_bus_init();
   static shtc3_t shtc3_dev;
-  shtc3_t *shtc3 = shtc3_init(&shtc3_dev, bus) == ESP_OK ? &shtc3_dev : NULL;
+  shtc3 = shtc3_init(&shtc3_dev, bus) == ESP_OK ? &shtc3_dev : NULL;
   if (!shtc3)
     ESP_LOGW(TAG, "SHTC3 not found, temp/humidity will show dashes");
   static monitor_rtc_t rtc_dev;
@@ -318,10 +391,10 @@ void app_main(void) {
     ESP_LOGW(TAG, "RTC not found, time will not be set");
 
   static battery_t battery_dev;
-  battery_t *battery =
-      battery_init(&battery_dev) == ESP_OK ? &battery_dev : NULL;
+  battery = battery_init(&battery_dev) == ESP_OK ? &battery_dev : NULL;
   if (!battery)
     ESP_LOGW(TAG, "Battery ADC init failed, battery will show dashes");
+  initialize_timers();
 
   gps_start(on_gps_data);
 
@@ -334,13 +407,6 @@ void app_main(void) {
   while (1) {
     draw_current_screen();
 
-    data.uptime_s = (uint32_t)(esp_timer_get_time() / 1000000LL);
-
-    uint32_t woken = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
-    if (woken == 0) {
-      update_climate(shtc3, &data);
-      update_battery(battery, &data);
-      update_rtc(rtc, &data);
-    }
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
   }
 }
