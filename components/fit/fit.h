@@ -12,7 +12,21 @@ size_t fit_write_file_id_data(uint8_t *buf, uint32_t time_created);
 #define FIT_INVALID_UINT8 0xFF
 #define FIT_INVALID_UINT16 0xFFFF
 #define FIT_INVALID_SINT32 0x7FFFFFFF
+#define FIT_INVALID_UINT32 0xFFFFFFFF
 
+/*
+ * FIT record structure
+ * Represents a single FIT record containing GPS and sensor data.
+ * Fields may use FIT_INVALID_* constants if data is unavailable.
+ *
+ * timestamp: seconds since 1989-12-31 (FIT epoch)
+ * lat: semicircles, FIT_INVALID_SINT32 if no fix
+ * lon: semicircles, FIT_INVALID_SINT32 if no fix
+ * distance_cm: centimeters, FIT_INVALID_UINT32 if unknown
+ * speed_mm_s: millimeters per second, FIT_INVALID_UINT16 if unknown
+ * heart_rate: beats per minute, FIT_INVALID_UINT8 if no sensor
+ * cadence: revolutions per minute, FIT_INVALID_UINT8 if no sensor
+ */
 typedef struct {
   uint32_t timestamp;   // секунди від 1989-12-31 (FIT epoch)
   int32_t lat;          // semicircles, FIT_INVALID_SINT32 якщо немає фіксу
@@ -31,8 +45,8 @@ size_t fit_write_record_data(uint8_t *buf, const fit_record_t *rec);
 #define FIT_EVENT_STOP_ALL 4
 
 typedef struct {
-  uint32_t start_time;       // FIT epoch
-  uint32_t end_time;         // FIT epoch
+  uint32_t start_time; // FIT epoch
+  uint32_t end_time;   // FIT epoch
   uint32_t distance_cm;
   uint16_t avg_speed_mm_s;
   uint16_t max_speed_mm_s;
