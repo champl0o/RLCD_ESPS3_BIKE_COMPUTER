@@ -18,7 +18,6 @@
 #include "freertos/semphr.h"
 #include "gps.h"
 #include "monitor_rtc.h"
-#include "portmacro.h"
 #include "screen.h"
 #include "sdcard.h"
 #include "shtc3.h"
@@ -30,6 +29,11 @@
 #define NEXT_CLIMATE_DELAY_US 10000000 // 10 seconds
 #define NEXT_RTC_DELAY_US 1000000      // 1 second
 #define NEXT_BATTERY_DELAY_US 5000000  // 5 seconds
+
+#define UI_REDRAW (1u << 0)
+#define UI_TICK_RTC (1u << 1)
+#define UI_TICK_CLIMATE (1u << 2)
+#define UI_TICK_BATTERY (1u << 3)
 
 static const char *TAG = "main";
 
@@ -58,6 +62,10 @@ static void init_screen(void) {
   ui_task_handle = xTaskGetCurrentTaskHandle();
 }
 
+static void notify_ui(uint32_t bits) {
+  xTaskNotify(ui_task_handle, bits, eSetBits);
+}
+
 /* Одна шина на всю плату: SHTC3, PCF85063, ES8311, ES7210. */
 static i2c_master_bus_handle_t i2c_bus_init(void) {
   const i2c_master_bus_config_t cfg = {
@@ -75,7 +83,7 @@ static i2c_master_bus_handle_t i2c_bus_init(void) {
   return bus;
 }
 
-static void update_climate(void *arg) {
+static void update_climate(void) {
   if (!shtc3)
     return;
 
@@ -90,13 +98,11 @@ static void update_climate(void *arg) {
   }
   xSemaphoreGive(data_mutex);
 
-  xTaskNotifyGive(ui_task_handle);
-
   if (err != ESP_OK)
     ESP_LOGW(TAG, "SHTC3 read failed: %s", esp_err_to_name(err));
 }
 
-static void update_battery(void *arg) {
+static void update_battery(void) {
   if (!battery)
     return;
 
@@ -112,8 +118,6 @@ static void update_battery(void *arg) {
     data.battery_pct = pct;
   }
   xSemaphoreGive(data_mutex);
-
-  xTaskNotifyGive(ui_task_handle);
 }
 
 static void set_date_time_from_gps() {
@@ -147,7 +151,7 @@ static void set_date_time_from_gps() {
   }
 }
 
-static void update_rtc(void *arg) {
+static void update_rtc(void) {
   if (!rtc)
     return;
 
@@ -167,7 +171,6 @@ static void update_rtc(void *arg) {
   }
   xSemaphoreGive(data_mutex);
 
-  xTaskNotifyGive(ui_task_handle);
   if (err != ESP_OK)
     ESP_LOGW(TAG, "RTC read failed: %s", esp_err_to_name(err));
 }
@@ -246,32 +249,33 @@ static void on_gps_event(void *handler_arg, esp_event_base_t base, int32_t id,
 
     // d->stopped_time = trip_data.stopped_time;
 
-    xTaskNotifyGive(ui_task_handle); // Notify the UI task to redraw the screen
+    notify_ui(UI_REDRAW);
 
     ESP_LOGI(TAG, "GPS updated: lat=%.6f, lon=%.6f, speed=%.2f km/h",
              gps_data->lat, gps_data->lon, gps_data->speed_kmh);
   }
 }
 
+static void on_sensor_timer(void *arg) { notify_ui((uint32_t)(uintptr_t)arg); }
+
 static void initialize_timers(void) {
   const esp_timer_create_args_t climate_timer_args = {
-      .callback = update_climate,
+      .callback = on_sensor_timer,
+      .arg = (void *)(uintptr_t)UI_TICK_CLIMATE,
       .name = "climate_timer",
   };
 
   const esp_timer_create_args_t rtc_timer_args = {
-      .callback = update_rtc,
+      .callback = on_sensor_timer,
+      .arg = (void *)(uintptr_t)UI_TICK_RTC,
       .name = "rtc_timer",
   };
 
   const esp_timer_create_args_t battery_timer_args = {
-      .callback = update_battery,
+      .callback = on_sensor_timer,
+      .arg = (void *)(uintptr_t)UI_TICK_BATTERY,
       .name = "battery_timer",
   };
-
-  update_climate(NULL);
-  update_rtc(NULL);
-  update_battery(NULL);
 
   ESP_ERROR_CHECK(esp_timer_create(&climate_timer_args, &climate_timer));
   ESP_ERROR_CHECK(esp_timer_create(&rtc_timer_args, &rtc_timer));
@@ -334,8 +338,7 @@ static void on_button_event(void *handler_arg, esp_event_base_t base,
     }
 
     if (local_current_screen != data.current_screen) {
-      xTaskNotifyGive(
-          ui_task_handle); // Notify the UI task to redraw the screen
+      notify_ui(UI_REDRAW);
 
       xSemaphoreTake(data_mutex, portMAX_DELAY);
       ESP_LOGI(TAG, "Screen changed to %d", data.current_screen);
@@ -404,9 +407,19 @@ void app_main(void) {
 
   button_init(on_button_callback);
 
+  /* Перший прохід читає всі датчики, щоб не чекати перший тик таймера. */
+  uint32_t bits = UI_TICK_CLIMATE | UI_TICK_RTC | UI_TICK_BATTERY;
+
   while (1) {
+    if (bits & UI_TICK_CLIMATE)
+      update_climate();
+    if (bits & UI_TICK_RTC)
+      update_rtc();
+    if (bits & UI_TICK_BATTERY)
+      update_battery();
+
     draw_current_screen();
 
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    xTaskNotifyWait(0, UINT32_MAX, &bits, portMAX_DELAY);
   }
 }
