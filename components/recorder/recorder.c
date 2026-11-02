@@ -1,24 +1,130 @@
 #include "recorder.h"
-#include "esp_err.h"
 #include "esp_log.h"
+#include "fit_writer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "portmacro.h"
-#include <string.h>
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <time.h>
+
+#define RECORDER_QUEUE_LENGTH 16
+#define RECORDER_TASK_STACK 6144
+#define RECORDER_TASK_PRIORITY 3
+#define FIT_EPOCH_UNIX_OFFSET 631065600 /* 1989-12-31 у Unix-секундах */
+
+typedef enum {
+  MSG_START = 0,
+  MSG_STOP,
+  MSG_RECORD,
+} recorder_msg_type_t;
+
+typedef struct {
+  recorder_msg_type_t type;
+  uint32_t start_time;
+  fit_record_t record;
+} recorder_msg_t;
+
+typedef struct {
+  fit_writer_t writer;
+  bool recording;
+} recorder_state_t;
 
 static const char *TAG = "recorder";
 static QueueHandle_t recorder_queue = NULL;
 static uint32_t dropped;
 
-static void recorder_task(void *arg) {
-  ESP_LOGI(TAG, "Recorder task started");
-  fit_record_t record;
+static esp_err_t enqueue(const recorder_msg_t *msg) {
+  if (recorder_queue == NULL) {
+    ESP_LOGE(TAG, "Recorder not initialized");
+    return ESP_ERR_INVALID_STATE;
+  }
 
-  while (1) {
-    if (xQueueReceive(recorder_queue, &record, portMAX_DELAY) == pdTRUE) {
-      // Process the record here
-      ESP_LOGI(TAG, "Processing record: timestamp=%u", record.timestamp);
+  if (xQueueSend(recorder_queue, msg, 0) != pdTRUE) {
+    dropped++;
+    ESP_LOGW(TAG,
+             "Queue full, message type %d dropped (total dropped: %" PRIu32 ")",
+             (int)msg->type, dropped);
+    return ESP_ERR_TIMEOUT;
+  }
+  return ESP_OK;
+}
+
+static void build_path(char *path, size_t size, uint32_t fit_time) {
+  time_t unix_time = (time_t)fit_time + FIT_EPOCH_UNIX_OFFSET;
+  struct tm tm_utc;
+  gmtime_r(&unix_time, &tm_utc);
+  snprintf(path, size, "/sdcard/ride_%04d%02d%02d_%02d%02d%02d.fit",
+           tm_utc.tm_year + 1900, tm_utc.tm_mon + 1, tm_utc.tm_mday,
+           tm_utc.tm_hour, tm_utc.tm_min, tm_utc.tm_sec);
+}
+
+static void handle_start(recorder_state_t *st, uint32_t start_time) {
+  if (st->recording) {
+    ESP_LOGW(TAG, "Start ignored: already recording");
+    return;
+  }
+
+  char path[64];
+  build_path(path, sizeof(path), start_time);
+  if (fit_writer_open(&st->writer, path, start_time) != 0) {
+    ESP_LOGE(TAG, "Failed to open %s", path);
+    return;
+  }
+
+  st->recording = true;
+  ESP_LOGI(TAG, "Recording to %s", path);
+}
+
+static void handle_record(recorder_state_t *st, const fit_record_t *record) {
+  if (!st->recording)
+    return;
+
+  if (fit_writer_add_record(&st->writer, record) != 0) {
+    ESP_LOGE(TAG, "Write failed, closing file");
+    fit_writer_close(&st->writer);
+    st->recording = false;
+  }
+}
+
+static void handle_stop(recorder_state_t *st) {
+  if (!st->recording) {
+    ESP_LOGW(TAG, "Stop ignored: not recording");
+    return;
+  }
+
+  st->recording = false;
+  if (fit_writer_close(&st->writer) != 0) {
+    ESP_LOGE(TAG, "Failed to close file cleanly");
+    return;
+  }
+
+  ESP_LOGI(TAG, "Recording saved (%" PRIu32 " bytes of data)",
+           st->writer.data_size);
+  ESP_LOGI(TAG, "Stack high water mark: %u bytes",
+           (unsigned)uxTaskGetStackHighWaterMark(NULL));
+}
+
+static void recorder_task(void *arg) {
+  recorder_state_t state = {.recording = false};
+  recorder_msg_t msg;
+
+  ESP_LOGI(TAG, "Recorder task started");
+
+  for (;;) {
+    xQueueReceive(recorder_queue, &msg, portMAX_DELAY);
+
+    switch (msg.type) {
+    case MSG_START:
+      handle_start(&state, msg.start_time);
+      break;
+    case MSG_RECORD:
+      handle_record(&state, &msg.record);
+      break;
+    case MSG_STOP:
+      handle_stop(&state);
+      break;
     }
   }
 }
@@ -31,14 +137,15 @@ esp_err_t recorder_init(void) {
     return ESP_OK;
   }
 
-  recorder_queue = xQueueCreate(16, sizeof(fit_record_t));
+  recorder_queue = xQueueCreate(RECORDER_QUEUE_LENGTH, sizeof(recorder_msg_t));
   if (recorder_queue == NULL) {
     ESP_LOGE(TAG, "Failed to create recorder queue");
     return ESP_FAIL;
   }
 
   BaseType_t ret =
-      xTaskCreate(recorder_task, "recorder_task", 4096, NULL, 3, NULL);
+      xTaskCreate(recorder_task, "recorder_task", RECORDER_TASK_STACK, NULL,
+                  RECORDER_TASK_PRIORITY, NULL);
   if (ret != pdPASS) {
     ESP_LOGE(TAG, "Failed to create recorder task");
     vQueueDelete(recorder_queue);
@@ -49,32 +156,17 @@ esp_err_t recorder_init(void) {
   return ESP_OK;
 }
 
-// non blocking, returns ESP_OK if record was pushed, ESP_ERR_TIMEOUT if the
-// queue is full
 esp_err_t recorder_push(const fit_record_t *record) {
-  if (recorder_queue == NULL) {
-    ESP_LOGE(TAG, "Recorder not initialized");
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  if (xQueueSend(recorder_queue, record, 0) != pdTRUE) {
-    ESP_LOGW(TAG, "Recorder queue full, dropping record");
-    dropped++;
-    ESP_LOGW(TAG, "Dropped records count: %u", dropped);
-    return ESP_ERR_TIMEOUT;
-  }
-
-  return ESP_OK;
+  recorder_msg_t msg = {.type = MSG_RECORD, .record = *record};
+  return enqueue(&msg);
 }
 
-esp_err_t recorder_start(void) {
-  ESP_LOGI(TAG, "Starting recorder");
-  // Start code here
-  return ESP_OK;
+esp_err_t recorder_start(uint32_t fit_time) {
+  recorder_msg_t msg = {.type = MSG_START, .start_time = fit_time};
+  return enqueue(&msg);
 }
 
 esp_err_t recorder_stop(void) {
-  ESP_LOGI(TAG, "Stopping recorder");
-  // Stop code here
-  return ESP_OK;
+  recorder_msg_t msg = {.type = MSG_STOP};
+  return enqueue(&msg);
 }

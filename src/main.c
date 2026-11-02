@@ -229,6 +229,20 @@ static void on_gps_data(const gps_data_t *data) {
   }
 }
 
+static bool fit_time_from_data(const screen_data_t *d, uint32_t *out) {
+  if (d->gps_valid) {
+    *out = fit_timestamp_from_utc(2000 + d->utc_year, d->utc_month, d->utc_day,
+                                  d->utc_hh, d->utc_mm, d->utc_ss);
+    return true;
+  }
+  if (d->rtc_valid) {
+    *out = fit_timestamp_from_utc(2000 + d->rtc_year, d->rtc_month, d->rtc_day,
+                                  d->rtc_hour, d->rtc_min, d->rtc_sec);
+    return true;
+  }
+  return false;
+}
+
 static void on_gps_event(void *handler_arg, esp_event_base_t base, int32_t id,
                          void *event_data) {
   if (id == EVT_GPS_UPDATED) {
@@ -248,19 +262,8 @@ static void on_gps_event(void *handler_arg, esp_event_base_t base, int32_t id,
     data.average_speed = trip_data->average_speed;
     data.max_speed_kmh = trip_data->max_speed_kmh;
 
-    bool has_time = true;
     uint32_t timestamp = 0;
-    if (gps_data->valid) {
-      timestamp = fit_timestamp_from_utc(2000 + gps_data->year, gps_data->month,
-                                         gps_data->day, gps_data->hh,
-                                         gps_data->mm, gps_data->ss);
-    } else if (data.rtc_valid) {
-      timestamp = fit_timestamp_from_utc(2000 + data.rtc_year, data.rtc_month,
-                                         data.rtc_day, data.rtc_hour,
-                                         data.rtc_min, data.rtc_sec);
-    } else {
-      has_time = false;
-    }
+    bool has_time = fit_time_from_data(&data, &timestamp);
     xSemaphoreGive(data_mutex);
 
     if (has_time) {
@@ -355,10 +358,30 @@ static void on_button_event(void *handler_arg, esp_event_base_t base,
       xSemaphoreGive(data_mutex);
     }
 
-    if (event->btn_id == BTN_BOOT) {
+    if (event->btn_id == BTN_BOOT && event->gesture == PRESS_SHORT) {
       xSemaphoreTake(data_mutex, portMAX_DELAY);
       data.current_screen = SCREEN_MINIMAL;
       xSemaphoreGive(data_mutex);
+    }
+
+    if (event->btn_id == BTN_KEY && event->gesture == PRESS_LONG) {
+      uint32_t start_time = 0;
+      xSemaphoreTake(data_mutex, portMAX_DELAY);
+      bool sd_mounted = data.sd_mounted;
+      bool has_time = fit_time_from_data(&data, &start_time);
+      xSemaphoreGive(data_mutex);
+
+      if (!sd_mounted || !has_time) {
+        ESP_LOGW(TAG, "Cannot start recording: sd_mounted=%d, time known=%d",
+                 sd_mounted, has_time);
+      } else if (recorder_start(start_time) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to queue recording start");
+      }
+    }
+
+    if (event->btn_id == BTN_BOOT && event->gesture == PRESS_LONG) {
+      if (recorder_stop() != ESP_OK)
+        ESP_LOGW(TAG, "Failed to queue recording stop");
     }
 
     if (local_current_screen != data.current_screen) {
