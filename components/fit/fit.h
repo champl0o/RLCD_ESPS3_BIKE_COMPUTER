@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -40,6 +41,14 @@ typedef struct {
 int32_t fit_degrees_to_semicircles(double degrees);
 size_t fit_write_record_definition(uint8_t *buf);
 size_t fit_write_record_data(uint8_t *buf, const fit_record_t *rec);
+
+uint32_t fit_timestamp_from_utc(uint16_t year, uint8_t month, uint8_t day,
+                                uint8_t hour, uint8_t minute, uint8_t second);
+
+fit_record_t fit_record_make(uint32_t timestamp, bool position_valid,
+                             double lat, double lon, float speed_kmh,
+                             double dist_km, uint8_t heart_rate,
+                             uint8_t cadence);
 
 #define FIT_EVENT_START 0
 #define FIT_EVENT_STOP_ALL 4

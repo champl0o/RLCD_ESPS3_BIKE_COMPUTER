@@ -166,11 +166,24 @@ static uint32_t elapsed_ms(const fit_summary_t *summary) {
 
 size_t fit_write_event_definition(uint8_t *buf) {
   static const uint8_t def[] = {
-      0x40 | LOCAL_EVENT, 0x00, 0x00, MESG_EVENT, 0x00, 0x04,
-      253,                0x04, 0x86, // timestamp
-      0,                  0x01, 0x00, // event
-      1,                  0x01, 0x00, // event_type
-      4,                  0x01, 0x02, // event_group
+      0x40 | LOCAL_EVENT,
+      0x00,
+      0x00,
+      MESG_EVENT,
+      0x00,
+      0x04,
+      253,
+      0x04,
+      0x86, // timestamp
+      0,
+      0x01,
+      0x00, // event
+      1,
+      0x01,
+      0x00, // event_type
+      4,
+      0x01,
+      0x02, // event_group
   };
   memcpy(buf, def, sizeof(def));
   return sizeof(def);
@@ -189,16 +202,39 @@ size_t fit_write_event_data(uint8_t *buf, uint32_t timestamp,
 
 size_t fit_write_lap_definition(uint8_t *buf) {
   static const uint8_t def[] = {
-      0x40 | LOCAL_LAP, 0x00, 0x00, MESG_LAP, 0x00, 0x09,
-      254,              0x02, 0x84, // message_index
-      253,              0x04, 0x86, // timestamp
-      2,                0x04, 0x86, // start_time
-      7,                0x04, 0x86, // total_elapsed_time, ms
-      8,                0x04, 0x86, // total_timer_time, ms
-      9,                0x04, 0x86, // total_distance, cm
-      13,               0x02, 0x84, // avg_speed, mm/s
-      14,               0x02, 0x84, // max_speed, mm/s
-      25,               0x01, 0x00, // sport
+      0x40 | LOCAL_LAP,
+      0x00,
+      0x00,
+      MESG_LAP,
+      0x00,
+      0x09,
+      254,
+      0x02,
+      0x84, // message_index
+      253,
+      0x04,
+      0x86, // timestamp
+      2,
+      0x04,
+      0x86, // start_time
+      7,
+      0x04,
+      0x86, // total_elapsed_time, ms
+      8,
+      0x04,
+      0x86, // total_timer_time, ms
+      9,
+      0x04,
+      0x86, // total_distance, cm
+      13,
+      0x02,
+      0x84, // avg_speed, mm/s
+      14,
+      0x02,
+      0x84, // max_speed, mm/s
+      25,
+      0x01,
+      0x00, // sport
   };
   memcpy(buf, def, sizeof(def));
   return sizeof(def);
@@ -221,18 +257,45 @@ size_t fit_write_lap_data(uint8_t *buf, const fit_summary_t *summary) {
 
 size_t fit_write_session_definition(uint8_t *buf) {
   static const uint8_t def[] = {
-      0x40 | LOCAL_SESSION, 0x00, 0x00, MESG_SESSION, 0x00, 0x0b,
-      253,                  0x04, 0x86, // timestamp
-      2,                    0x04, 0x86, // start_time
-      5,                    0x01, 0x00, // sport
-      6,                    0x01, 0x00, // sub_sport
-      7,                    0x04, 0x86, // total_elapsed_time, ms
-      8,                    0x04, 0x86, // total_timer_time, ms
-      9,                    0x04, 0x86, // total_distance, cm
-      14,                   0x02, 0x84, // avg_speed, mm/s
-      15,                   0x02, 0x84, // max_speed, mm/s
-      25,                   0x02, 0x84, // first_lap_index
-      26,                   0x02, 0x84, // num_laps
+      0x40 | LOCAL_SESSION,
+      0x00,
+      0x00,
+      MESG_SESSION,
+      0x00,
+      0x0b,
+      253,
+      0x04,
+      0x86, // timestamp
+      2,
+      0x04,
+      0x86, // start_time
+      5,
+      0x01,
+      0x00, // sport
+      6,
+      0x01,
+      0x00, // sub_sport
+      7,
+      0x04,
+      0x86, // total_elapsed_time, ms
+      8,
+      0x04,
+      0x86, // total_timer_time, ms
+      9,
+      0x04,
+      0x86, // total_distance, cm
+      14,
+      0x02,
+      0x84, // avg_speed, mm/s
+      15,
+      0x02,
+      0x84, // max_speed, mm/s
+      25,
+      0x02,
+      0x84, // first_lap_index
+      26,
+      0x02,
+      0x84, // num_laps
   };
   memcpy(buf, def, sizeof(def));
   return sizeof(def);
@@ -257,14 +320,33 @@ size_t fit_write_session_data(uint8_t *buf, const fit_summary_t *summary) {
 
 size_t fit_write_activity_definition(uint8_t *buf) {
   static const uint8_t def[] = {
-      0x40 | LOCAL_ACTIVITY, 0x00, 0x00, MESG_ACTIVITY, 0x00, 0x07,
-      253,                   0x04, 0x86, // timestamp
-      0,                     0x04, 0x86, // total_timer_time, ms
-      5,                     0x04, 0x86, // local_timestamp
-      1,                     0x02, 0x84, // num_sessions
-      2,                     0x01, 0x00, // type
-      3,                     0x01, 0x00, // event
-      4,                     0x01, 0x00, // event_type
+      0x40 | LOCAL_ACTIVITY,
+      0x00,
+      0x00,
+      MESG_ACTIVITY,
+      0x00,
+      0x07,
+      253,
+      0x04,
+      0x86, // timestamp
+      0,
+      0x04,
+      0x86, // total_timer_time, ms
+      5,
+      0x04,
+      0x86, // local_timestamp
+      1,
+      0x02,
+      0x84, // num_sessions
+      2,
+      0x01,
+      0x00, // type
+      3,
+      0x01,
+      0x00, // event
+      4,
+      0x01,
+      0x00, // event_type
   };
   memcpy(buf, def, sizeof(def));
   return sizeof(def);
@@ -281,4 +363,42 @@ size_t fit_write_activity_data(uint8_t *buf, const fit_summary_t *summary) {
   buf[n++] = EVENT_ACTIVITY;
   buf[n++] = EVENT_TYPE_STOP;
   return n;
+}
+
+static int64_t days_from_civil(int64_t y, unsigned m, unsigned d) {
+  y -= m <= 2;
+  const int64_t era = (y >= 0 ? y : y - 399) / 400;
+  const unsigned yoe = (unsigned)(y - era * 400);
+  const unsigned doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + (int64_t)doe - 719468;
+}
+
+#define FIT_EPOCH_DAYS_FROM_UNIX 7304 /* 1989-12-31 = 631065600 с / 86400 */
+
+uint32_t fit_timestamp_from_utc(uint16_t year, uint8_t month, uint8_t day,
+                                uint8_t hour, uint8_t minute, uint8_t second) {
+  int64_t days = days_from_civil(year, month, day) - FIT_EPOCH_DAYS_FROM_UNIX;
+  if (days < 0)
+    return 0;
+  return (uint32_t)(days * 86400 + hour * 3600 + minute * 60 + second);
+}
+
+fit_record_t fit_record_make(uint32_t timestamp, bool position_valid,
+                             double lat, double lon, float speed_kmh,
+                             double dist_km, uint8_t heart_rate,
+                             uint8_t cadence) {
+  fit_record_t rec;
+  rec.timestamp = timestamp;
+  rec.lat =
+      position_valid ? fit_degrees_to_semicircles(lat) : FIT_INVALID_SINT32;
+  rec.lon =
+      position_valid ? fit_degrees_to_semicircles(lon) : FIT_INVALID_SINT32;
+  rec.distance_cm = (uint32_t)(dist_km * 100000.0);
+  rec.speed_mm_s =
+      position_valid ? (uint16_t)(speed_kmh * 1000 / 3.6) : FIT_INVALID_UINT16;
+  rec.heart_rate = heart_rate;
+  rec.cadence = cadence;
+
+  return rec;
 }

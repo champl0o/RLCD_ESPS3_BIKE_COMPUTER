@@ -8,6 +8,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "fit.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -247,51 +248,28 @@ static void on_gps_event(void *handler_arg, esp_event_base_t base, int32_t id,
     data.average_speed = trip_data->average_speed;
     data.max_speed_kmh = trip_data->max_speed_kmh;
 
-    struct tm timeinfo = {0};
-    if (data.gps_valid) {
-      timeinfo = (struct tm){
-          .tm_year = data.utc_year + 100,
-          .tm_mon = data.utc_month - 1,
-          .tm_mday = data.utc_day,
-          .tm_hour = data.utc_hh,
-          .tm_min = data.utc_mm,
-          .tm_sec = data.utc_ss,
-      };
+    bool has_time = true;
+    uint32_t timestamp = 0;
+    if (gps_data->valid) {
+      timestamp = fit_timestamp_from_utc(2000 + gps_data->year, gps_data->month,
+                                         gps_data->day, gps_data->hh,
+                                         gps_data->mm, gps_data->ss);
     } else if (data.rtc_valid) {
-      timeinfo = (struct tm){
-          .tm_year = data.rtc_year + 100,
-          .tm_mon = data.rtc_month - 1,
-          .tm_mday = data.rtc_day,
-          .tm_hour = data.rtc_hour,
-          .tm_min = data.rtc_min,
-          .tm_sec = data.rtc_sec,
-      };
+      timestamp = fit_timestamp_from_utc(2000 + data.rtc_year, data.rtc_month,
+                                         data.rtc_day, data.rtc_hour,
+                                         data.rtc_min, data.rtc_sec);
+    } else {
+      has_time = false;
     }
-    uint32_t timestamp =
-        mktime(&timeinfo) - // TODO: fix the timezone offset in the future
-        631065600;          // Convert to FIT epoch (seconds since 1989-12-31)
-    bool gps_valid = data.gps_valid;
-    bool rtc_valid = data.rtc_valid;
     xSemaphoreGive(data_mutex);
 
-    uint16_t speed_mm_s = gps_valid
-                              ? (uint16_t)(gps_data->speed_kmh * 1000 / 3.6)
-                              : FIT_INVALID_UINT16;
-
-    fit_record_t record = {
-        .timestamp = timestamp,
-        .lat = gps_valid ? fit_degrees_to_semicircles(gps_data->lat)
-                         : FIT_INVALID_SINT32,
-        .lon = gps_valid ? fit_degrees_to_semicircles(gps_data->lon)
-                         : FIT_INVALID_SINT32,
-        .heart_rate = FIT_INVALID_UINT8,
-        .cadence = FIT_INVALID_UINT8,
-        .distance_cm =
-            (uint32_t)(trip_data->dist_km * 100000.0), // Convert km to cm
-        .speed_mm_s = gps_valid ? speed_mm_s : FIT_INVALID_UINT16};
-
-    if (gps_valid || rtc_valid)
+    if (has_time) {
+      fit_record_t record = fit_record_make(
+          timestamp, gps_data->valid, gps_data->lat, gps_data->lon,
+          gps_data->speed_kmh, trip_data->dist_km, FIT_INVALID_UINT8,
+          FIT_INVALID_UINT8);
       recorder_push(&record);
+    }
 
     // d->stopped_time = trip_data.stopped_time;
 

@@ -236,8 +236,74 @@ void test_semicircles_round_trip_real_coordinates(void) {
   }
 }
 
+/* Очікувані значення пораховані незалежно (Python datetime від 1989-12-31). */
+void test_timestamp_fit_epoch_is_zero(void) {
+  TEST_ASSERT_EQUAL_UINT32(0, fit_timestamp_from_utc(1989, 12, 31, 0, 0, 0));
+}
+
+void test_timestamp_one_day_after_epoch(void) {
+  TEST_ASSERT_EQUAL_UINT32(86400, fit_timestamp_from_utc(1990, 1, 1, 0, 0, 0));
+}
+
+void test_timestamp_year_2000(void) {
+  TEST_ASSERT_EQUAL_UINT32(315619200,
+                           fit_timestamp_from_utc(2000, 1, 1, 0, 0, 0));
+}
+
+void test_timestamp_leap_day_with_time(void) {
+  TEST_ASSERT_EQUAL_UINT32(1078144496,
+                           fit_timestamp_from_utc(2024, 2, 29, 12, 34, 56));
+}
+
+void test_timestamp_day_after_leap_day(void) {
+  TEST_ASSERT_EQUAL_UINT32(1078185600,
+                           fit_timestamp_from_utc(2024, 3, 1, 0, 0, 0));
+}
+
+void test_timestamp_today(void) {
+  TEST_ASSERT_EQUAL_UINT32(1162512000,
+                           fit_timestamp_from_utc(2026, 11, 2, 0, 0, 0));
+  TEST_ASSERT_EQUAL_UINT32(1162598399,
+                           fit_timestamp_from_utc(2026, 11, 2, 23, 59, 59));
+}
+
+void test_timestamp_before_fit_epoch_is_zero(void) {
+  TEST_ASSERT_EQUAL_UINT32(0, fit_timestamp_from_utc(1970, 1, 1, 0, 0, 0));
+}
+
+void test_record_make_without_position_keeps_distance(void) {
+  fit_record_t r = fit_record_make(100, false, 50.0, 30.0, 25.0f, 1.5, 120, 80);
+  TEST_ASSERT_EQUAL_INT32(FIT_INVALID_SINT32, r.lat);
+  TEST_ASSERT_EQUAL_INT32(FIT_INVALID_SINT32, r.lon);
+  TEST_ASSERT_EQUAL_UINT16(FIT_INVALID_UINT16, r.speed_mm_s);
+  TEST_ASSERT_EQUAL_UINT32(150000, r.distance_cm);
+  TEST_ASSERT_EQUAL_UINT32(100, r.timestamp);
+}
+
+void test_record_make_with_position_converts_units(void) {
+  fit_record_t r =
+      fit_record_make(7, true, 50.0, -30.0, 36.0f, 2.0, FIT_INVALID_UINT8,
+                      FIT_INVALID_UINT8);
+  TEST_ASSERT_EQUAL_INT32(fit_degrees_to_semicircles(50.0), r.lat);
+  TEST_ASSERT_EQUAL_INT32(fit_degrees_to_semicircles(-30.0), r.lon);
+  TEST_ASSERT_EQUAL_UINT16(10000, r.speed_mm_s); /* 36 км/год = 10 м/с */
+  TEST_ASSERT_EQUAL_UINT32(200000, r.distance_cm);
+  TEST_ASSERT_EQUAL_UINT8(FIT_INVALID_UINT8, r.heart_rate);
+  TEST_ASSERT_EQUAL_UINT8(FIT_INVALID_UINT8, r.cadence);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_timestamp_fit_epoch_is_zero);
+  RUN_TEST(test_timestamp_one_day_after_epoch);
+  RUN_TEST(test_timestamp_year_2000);
+  RUN_TEST(test_timestamp_leap_day_with_time);
+  RUN_TEST(test_timestamp_day_after_leap_day);
+  RUN_TEST(test_timestamp_today);
+  RUN_TEST(test_timestamp_before_fit_epoch_is_zero);
+  RUN_TEST(test_record_make_without_position_keeps_distance);
+  RUN_TEST(test_record_make_with_position_converts_units);
+
   RUN_TEST(test_put_u32_is_little_endian);
   RUN_TEST(test_put_u32_returns_correct_value);
   RUN_TEST(test_put_u32_leaves_other_bytes_unchanged);
