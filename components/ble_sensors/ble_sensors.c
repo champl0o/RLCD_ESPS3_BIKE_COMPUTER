@@ -1,4 +1,6 @@
 #include "ble_sensors.h"
+#include "host/ble_gatt.h"
+#include "host/ble_hs_adv.h"
 #include "nvs_flash.h"
 
 #include "esp_log.h"
@@ -10,51 +12,12 @@
 
 #define TAG "BLE"
 
-static ble_sensors_event_t ble_event[6] = {
-    {.state = IDLE, .next_state = SCANNING, .callback = NULL},
-    {.state = SCANNING, .next_state = CONNECTING, .callback = NULL},
-    {.state = CONNECTING, .next_state = DISCOVERING, .callback = NULL},
-    {.state = DISCOVERING, .next_state = SUBSCRIBING, .callback = NULL},
-    {.state = SUBSCRIBING, .next_state = SUBSCRIBED, .callback = NULL},
-    {.state = SUBSCRIBED, .next_state = IDLE, .callback = NULL}};
+static uint8_t own_addr_type;
 
 void ble_store_config_init(void);
-
-static void ble_sensors_on_reset(int reason) {
-  ESP_LOGI(TAG, "Reset reason: %d", reason);
-}
-
-static void ble_sensors_on_sync(void) {
-  ble_addr_t addr;
-  uint8_t own_addr_type;
-
-  ble_hs_util_ensure_addr(0);
-  ble_hs_id_infer_auto(0, &own_addr_type);
-
-  struct ble_hs_adv_fields fields;
-  memset(&fields, 0, sizeof(fields));
-  fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-  fields.name = (const uint8_t *)ble_svc_gap_device_name();
-  fields.name_len = strlen(ble_svc_gap_device_name());
-  fields.name_is_complete = 1;
-  ble_gap_adv_set_fields(&fields);
-
-  uint8_t uuid[16];
-  memset(uuid, 0, sizeof(uuid));
-
-  ble_ibeacon_set_adv_data(uuid, 2, 10, -50);
-
-  struct ble_gap_adv_params adv_params = (struct ble_gap_adv_params){0};
-  adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
-  adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-  ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &adv_params, NULL,
-                    NULL);
-}
-
-static void host_task(void *param) {
-  ESP_LOGI(TAG, "BLE Host Task Started");
-  nimble_port_run();
-}
+static void ble_sensors_on_reset(int reason);
+static void ble_sensors_on_sync(void);
+static void host_task(void *param);
 
 void ble_sensors_init(void) {
   esp_err_t ret = nvs_flash_init();
@@ -65,13 +28,91 @@ void ble_sensors_init(void) {
   }
   ESP_ERROR_CHECK(ret);
 
-  ESP_ERROR_CHECK(nimble_port_init());
+  ret = nimble_port_init();
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to init nimble %d", ret);
+    return;
+  }
 
+  // Initialize the NimBLE host configuration
   ble_hs_cfg.reset_cb = ble_sensors_on_reset;
   ble_hs_cfg.sync_cb = ble_sensors_on_sync;
-  ble_svc_gap_device_name_set("bike-computer");
 
-  ble_store_config_init();
+  int rc;
 
+  rc = ble_svc_gap_device_name_set("bike-computer");
+  if (rc != 0) {
+    ESP_LOGE(TAG, "Error setting device name; code=%d", rc);
+    return;
+  }
   nimble_port_freertos_init(host_task);
+}
+
+// BLE event callbacks and host task implementation
+
+static int ble_sensors_gap_event(struct ble_gap_event *event, void *arg) {
+  struct ble_hs_adv_fields fields;
+  int rc;
+
+  switch (event->type) {
+  case BLE_GAP_EVENT_DISC:
+    ESP_LOGI(TAG, "Discovered device: %02x:%02x:%02x:%02x:%02x:%02x",
+             event->disc.addr.val[5], event->disc.addr.val[4],
+             event->disc.addr.val[3], event->disc.addr.val[2],
+             event->disc.addr.val[1], event->disc.addr.val[0]);
+    ESP_LOGI(TAG, "RSSI: %d", event->disc.rssi);
+    ESP_LOGI(TAG, "Event disc addr type: %d", event->disc.addr.type);
+
+    rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
+                                 event->disc.length_data);
+    if (rc != 0) {
+      ESP_LOGE(TAG, "Error parsing advertising fields; rc=%d", rc);
+    }
+
+    ESP_LOGI(TAG, "Advertising fields parsed successfully");
+    ESP_LOGI(TAG, "Advertising fields length: %.*s", fields.name_len);
+    ESP_LOGI(TAG, "Advertising fields type: %d", fields.name);
+    for (int i = 0; i < fields.num_uuids16; i++) {
+      ESP_LOGI(TAG, "UUID16: %04x", fields.uuids16[i].value);
+    }
+    break;
+  default:
+    break;
+  }
+  return 0;
+}
+static void ble_sensors_on_reset(int reason) {
+  ESP_LOGI(TAG, "Reset reason: %d", reason);
+}
+
+static void ble_sensors_on_sync(void) {
+  int rc;
+  struct ble_gap_disc_params disc_params = {0};
+
+  rc = ble_hs_util_ensure_addr(0);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "error ensuring address; rc=%d", rc);
+    return;
+  }
+
+  rc = ble_hs_id_infer_auto(0, &own_addr_type);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "error determining address type; rc=%d", rc);
+    return;
+  }
+
+  disc_params.filter_duplicates = 1;
+
+  rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params,
+                    ble_sensors_gap_event, NULL);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "Error initiating GAP discovery procedure; rc=%d", rc);
+  }
+
+  ESP_LOGI(TAG, "BLE on sync");
+}
+
+static void host_task(void *param) {
+  ESP_LOGI(TAG, "BLE Host Task Started");
+  nimble_port_run();
 }
