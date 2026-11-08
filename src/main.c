@@ -36,7 +36,7 @@ void app_main(void) {
 
   recorder_init();
 
-  ble_sensors_init(); // Initialize BLE sensors (if applicable)
+  ble_sensors_init(on_hr_data_handler, on_hr_lost_handler);
 
   gps_start(on_gps_data_handler);
 

@@ -1,4 +1,6 @@
 #include "handlers.h"
+#include "ble_parse.h"
+#include "esp_event_base.h"
 #include "esp_timer.h"
 #include "event_orchestrator.h"
 #include "fit.h"
@@ -6,6 +8,7 @@
 #include "recorder.h"
 #include "sdcard.h"
 #include "ui.h"
+#include <stdint.h>
 
 #define NEXT_CLIMATE_DELAY_US 10000000 // 10 seconds
 #define NEXT_RTC_DELAY_US 1000000      // 1 second
@@ -25,6 +28,10 @@ static void on_sd_card_event_handler(void *handler_arg, esp_event_base_t base,
                                      int32_t id, void *event_data);
 static void on_button_event_handler(void *handler_arg, esp_event_base_t base,
                                     int32_t id, void *event_data);
+static void on_hr_event_handler(void *handler_arg, esp_event_base_t base,
+                                int32_t id, void *event_data);
+static void on_hr_lost_event_handler(void *handler_arg, esp_event_base_t base,
+                                     int32_t id, void *event_data);
 
 static void on_sensor_timer(void *arg) { ui_notify((uint32_t)(uintptr_t)arg); }
 
@@ -74,6 +81,10 @@ esp_err_t handlers_init(void) {
                                        on_sd_card_event_handler, NULL);
   event_orchestrator_add_event_handler(APP_EVENT_ORCHESTRATOR, EVT_BUTTON,
                                        on_button_event_handler, NULL);
+  event_orchestrator_add_event_handler(APP_EVENT_ORCHESTRATOR, EVT_HR_UPDATED,
+                                       on_hr_event_handler, NULL);
+  event_orchestrator_add_event_handler(APP_EVENT_ORCHESTRATOR, EVT_HR_LOST,
+                                       on_hr_lost_event_handler, NULL);
 
   return ESP_OK;
 }
@@ -102,12 +113,14 @@ static void on_gps_event_handler(void *handler_arg, esp_event_base_t base,
 
     uint32_t timestamp = 0;
     bool has_time = model_fit_time(&timestamp);
+    uint8_t hr_bpm = FIT_INVALID_UINT8;
+    if (!model_hr_bpm(&hr_bpm))
+      hr_bpm = FIT_INVALID_UINT8;
 
     if (has_time) {
       fit_record_t record = fit_record_make(
           timestamp, gps_data->valid, gps_data->lat, gps_data->lon,
-          gps_data->speed_kmh, trip_data->dist_km, FIT_INVALID_UINT8,
-          FIT_INVALID_UINT8);
+          gps_data->speed_kmh, trip_data->dist_km, hr_bpm, FIT_INVALID_UINT8);
       recorder_push(&record);
     }
 
@@ -184,5 +197,47 @@ static void on_button_event_handler(void *handler_arg, esp_event_base_t base,
 
       ESP_LOGI(TAG, "Screen changed to %d", model_current_screen());
     }
+  }
+}
+
+void on_hr_data_handler(hr_data_t hr_data) {
+  esp_err_t err =
+      esp_event_post_to(loop_handle, APP_EVENT_ORCHESTRATOR, EVT_HR_UPDATED,
+                        &hr_data, sizeof(hr_data_t), 0);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to post HR event: %s", esp_err_to_name(err));
+  }
+}
+
+static void on_hr_event_handler(void *handler_arg, esp_event_base_t base,
+                                int32_t id, void *event_data) {
+  if (id == EVT_HR_UPDATED) {
+    hr_data_t *hr_data = (hr_data_t *)event_data;
+
+    model_set_hr(hr_data->bpm, hr_data->contact_supported,
+                 hr_data->contact_detected);
+
+    ui_notify(UI_REDRAW);
+
+    ESP_LOGI(
+        TAG, "HR updated: bpm=%d, contact_supported=%d, contact_detected=%d",
+        hr_data->bpm, hr_data->contact_supported, hr_data->contact_detected);
+  }
+}
+
+void on_hr_lost_handler(void) {
+  esp_err_t err = esp_event_post_to(loop_handle, APP_EVENT_ORCHESTRATOR,
+                                    EVT_HR_LOST, NULL, 0, 0);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to post HR lost event: %s", esp_err_to_name(err));
+  }
+}
+
+static void on_hr_lost_event_handler(void *handler_arg, esp_event_base_t base,
+                                     int32_t id, void *event_data) {
+  if (id == EVT_HR_LOST) {
+    model_clear_hr();
+    ui_notify(UI_REDRAW);
+    ESP_LOGI(TAG, "HR sensor lost");
   }
 }

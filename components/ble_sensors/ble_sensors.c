@@ -1,4 +1,5 @@
 #include "ble_sensors.h"
+#include "ble_parse.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs_adv.h"
 #include "nvs_flash.h"
@@ -14,12 +15,17 @@
 
 static uint8_t own_addr_type;
 
+static ble_hr_cb_t hr_callback = NULL;
+static ble_lost_cb_t lost_callback = NULL;
+
 void ble_store_config_init(void);
 static void ble_sensors_on_reset(int reason);
 static void ble_sensors_on_sync(void);
 static void host_task(void *param);
 
-void ble_sensors_init(void) {
+void ble_sensors_init(ble_hr_cb_t on_hr, ble_lost_cb_t on_lost) {
+  hr_callback = on_hr;
+  lost_callback = on_lost;
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
       ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -75,6 +81,11 @@ static int ble_sensors_gap_event(struct ble_gap_event *event, void *arg) {
     for (int i = 0; i < fields.num_uuids16; i++) {
       ESP_LOGI(TAG, "UUID16: %04x", fields.uuids16[i].value);
     }
+    break;
+  case BLE_GAP_EVENT_DISCONNECT:
+    ESP_LOGI(TAG, "Disconnected; reason=%d", event->disconnect.reason);
+    if (lost_callback)
+      lost_callback();
     break;
   default:
     break;

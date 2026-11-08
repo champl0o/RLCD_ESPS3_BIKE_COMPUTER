@@ -21,6 +21,5 @@ bool hr_parse(const uint8_t *data, size_t len, hr_data_t *out) {
   out->bpm = wide ? (uint16_t)(data[1] | (data[2] << 8)) : data[1];
   out->contact_supported = (contact & HR_CONTACT_SUPPORTED_BIT) != 0;
   out->contact_detected = contact == HR_CONTACT_DETECTED;
-
   return true;
 }

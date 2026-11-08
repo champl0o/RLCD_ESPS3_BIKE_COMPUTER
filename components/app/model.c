@@ -1,9 +1,13 @@
 #include "model.h"
 #include "esp_err.h"
+#include "esp_timer.h"
 #include "fit.h"
 #include "screen.h"
 
 // screen
+#define HR_STALE_US 5000000 // 5 seconds without a packet
+#define FIT_HR_MAX 254      // 255 is FIT_INVALID_UINT8
+
 static screen_data_t data = {0};
 
 // rtos-related synchronization primitives and event handling
@@ -12,6 +16,7 @@ static SemaphoreHandle_t data_mutex;
 static void lock_data_mutex(void);
 static void unlock_data_mutex(void);
 static bool fit_time_from_data(const screen_data_t *d, uint32_t *out);
+static bool hr_is_fresh(const screen_data_t *d, int64_t now_us);
 
 esp_err_t model_init(void) {
   data_mutex = xSemaphoreCreateMutex();
@@ -26,6 +31,7 @@ esp_err_t model_init(void) {
 void model_snapshot(screen_data_t *out) {
   lock_data_mutex();
   *out = data;
+  out->hr_valid = hr_is_fresh(&data, esp_timer_get_time());
   unlock_data_mutex();
 }
 
@@ -57,6 +63,32 @@ void model_set_rtc(const struct tm *now, bool valid) {
     data.rtc_year = now->tm_year % 100;
   }
   data.rtc_valid = valid;
+  unlock_data_mutex();
+}
+
+bool model_hr_bpm(uint8_t *out) {
+  lock_data_mutex();
+  bool skin_ok = !data.hr_contact_supported || data.hr_contact_detected;
+  bool usable = hr_is_fresh(&data, esp_timer_get_time()) && skin_ok;
+  if (usable)
+    *out = data.hr_bpm > FIT_HR_MAX ? FIT_HR_MAX : (uint8_t)data.hr_bpm;
+  unlock_data_mutex();
+  return usable;
+}
+
+void model_set_hr(uint16_t bpm, bool contact_supported, bool contact_detected) {
+  lock_data_mutex();
+  data.hr_bpm = bpm;
+  data.hr_contact_supported = contact_supported;
+  data.hr_contact_detected = contact_detected;
+  data.hr_valid = true;
+  data.hr_updated_us = esp_timer_get_time();
+  unlock_data_mutex();
+}
+
+void model_clear_hr(void) {
+  lock_data_mutex();
+  data.hr_valid = false;
   unlock_data_mutex();
 }
 
@@ -177,4 +209,8 @@ current_screen_t model_current_screen(void) {
   unlock_data_mutex();
 
   return screen;
+}
+
+static bool hr_is_fresh(const screen_data_t *d, int64_t now_us) {
+  return d->hr_valid && (now_us - d->hr_updated_us) < HR_STALE_US;
 }

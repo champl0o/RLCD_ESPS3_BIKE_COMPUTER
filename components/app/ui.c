@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "esp_timer.h"
+#include <stdint.h>
 
 #define SCREEN_TAG "screen"
 

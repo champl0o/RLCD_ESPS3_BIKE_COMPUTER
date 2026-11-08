@@ -12,7 +12,9 @@ typedef enum {
   EVT_RTC_UPDATED,
   EVT_CLIMATE_UPDATED,
   EVT_BATTERY_UPDATED,
-  EVT_SD_MOUNTED
+  EVT_SD_MOUNTED,
+  EVT_HR_UPDATED,
+  EVT_HR_LOST,
 } app_event_id_t;
 
 esp_err_t event_orchestrator_init(void);

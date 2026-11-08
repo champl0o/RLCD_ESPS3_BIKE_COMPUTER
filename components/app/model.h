@@ -3,6 +3,7 @@
 #include "gps.h"
 #include "screen.h"
 #include "trip.h"
+#include <ble_parse.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
@@ -13,6 +14,9 @@ void model_set_climate(float temp_c, float humidity_pct, bool valid);
 void model_set_battery(int mv, int pct, bool valid);
 void model_set_rtc(const struct tm *now, bool valid);
 void model_set_sd_mounted(bool mounted);
+bool model_hr_bpm(uint8_t *out);
+void model_set_hr(uint16_t bpm, bool contact_supported, bool contact_detected);
+void model_clear_hr(void);
 bool model_sd_mounted(void);
 void model_apply_gps(const gps_data_t *gps, const trip_t *trip_data);
 void model_next_screen(void);
