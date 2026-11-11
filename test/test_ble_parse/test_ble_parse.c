@@ -72,10 +72,19 @@ void test_empty_and_null_inputs_are_rejected(void) {
   TEST_ASSERT_FALSE(hr_parse(NULL, 2, &hr));
   TEST_ASSERT_FALSE(hr_parse(pkt, sizeof(pkt), NULL));
 }
+void test_real_coros_packet(void) {
+  const uint8_t pkt[] = {0x00, 0x44};
+  hr_data_t hr;
+  TEST_ASSERT_TRUE(hr_parse(pkt, sizeof(pkt), &hr));
+  TEST_ASSERT_EQUAL_UINT16(68, hr.bpm);
+  TEST_ASSERT_FALSE(hr.contact_supported);
+  TEST_ASSERT_FALSE(hr.contact_detected);
+}
 
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_uint8_format_reads_one_byte_bpm);
+  RUN_TEST(test_real_coros_packet);
   RUN_TEST(test_uint16_format_reads_little_endian_bpm);
   RUN_TEST(test_contact_detected_matches_blehr_example);
   RUN_TEST(test_contact_supported_but_not_detected);
