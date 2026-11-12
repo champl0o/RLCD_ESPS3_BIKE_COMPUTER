@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NMEA_MAX_LEN 96 /* стандарт: ≤ 82 символи */
+#define NMEA_MAX_LEN 96 /* standard: at most 82 characters */
 #define MAX_FIELDS 15
 
 static int hex_digit(char c)
@@ -34,13 +34,13 @@ bool nmea_checksum_ok(const char *line)
     return lo >= 0 && x == (uint8_t)(hi * 16 + lo);
 }
 
-/* strsep() лишає NULL для полів, яких у реченні немає. */
+/* strsep() leaves NULL for fields the sentence does not have. */
 static const char *field(char **parts, int i)
 {
     return parts[i] ? parts[i] : "";
 }
 
-/* Два символи-цифри → число, інакше -1. */
+/* Two digit characters → number, otherwise -1. */
 static int two_digits(const char *s)
 {
     if (s[0] < '0' || s[0] > '9' || s[1] < '0' || s[1] > '9')
@@ -48,7 +48,7 @@ static int two_digits(const char *s)
     return (s[0] - '0') * 10 + (s[1] - '0');
 }
 
-/* ddmm.mmmm / dddmm.mmmm → десяткові градуси. */
+/* ddmm.mmmm / dddmm.mmmm → decimal degrees. */
 static double to_deg(const char *v, const char *hemi)
 {
     double raw = atof(v);
@@ -57,8 +57,8 @@ static double to_deg(const char *v, const char *hemi)
     return (hemi[0] == 'S' || hemi[0] == 'W') ? -d : d;
 }
 
-/* Перевіряє суму, копіює рядок у buf (strsep його псує), відрізає "*HH",
- * розбиває по комах. Вхідний рядок не змінюється. */
+/* Checks the sum, copies the line into buf (strsep ruins it), strips "*HH",
+ * splits on commas. The input line is left unchanged. */
 static bool split(const char *line, const char *type, char *buf, char **parts)
 {
     if (!line || strlen(line) >= NMEA_MAX_LEN || !nmea_checksum_ok(line))
@@ -108,7 +108,7 @@ bool nmea_parse_rmc(const char *line, nmea_rmc_t *out)
             return false;
         r.lat_deg = to_deg(field(parts, 3), field(parts, 4));
         r.lon_deg = to_deg(field(parts, 5), field(parts, 6));
-        r.speed_kmh = atof(field(parts, 7)) * KMH_MULTIPLIER / 1.944f; /* вузли → км/год */
+        r.speed_kmh = atof(field(parts, 7)) * KMH_MULTIPLIER / 1.944f; /* knots → km/h */
     }
 
     *out = r;

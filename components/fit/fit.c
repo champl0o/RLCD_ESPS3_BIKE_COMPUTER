@@ -51,16 +51,16 @@ uint16_t fit_crc16(uint16_t crc, const uint8_t *buf, size_t len) {
       0xA001, 0x6C00, 0x7800, 0xB401, 0x5000, 0x9C01, 0x8801, 0x4400};
   uint16_t tmp;
 
-  // ітеруюся по кожному байту буфера
+  // iterate over every byte of the buffer
   for (size_t i = 0; i < len; i++) {
     uint8_t byte = buf[i];
 
-    // вираховую контрольну суму для нижніх чотирьох бітів байта
+    // compute the checksum for the lower four bits of the byte
     tmp = crc_table[crc & 0xF];
     crc = (crc >> 4) & 0x0FFF;
     crc = crc ^ tmp ^ crc_table[byte & 0xF];
 
-    // вираховую контрольну суму для верхніх чотирьох бітів байта
+    // compute the checksum for the upper four bits of the byte
     tmp = crc_table[crc & 0xF];
     crc = (crc >> 4) & 0x0FFF;
     crc = crc ^ tmp ^ crc_table[(byte >> 4) & 0xF];
@@ -357,7 +357,7 @@ size_t fit_write_activity_data(uint8_t *buf, const fit_summary_t *summary) {
   buf[n++] = LOCAL_ACTIVITY;
   n += put_u32(buf + n, summary->end_time);
   n += put_u32(buf + n, elapsed_ms(summary));
-  n += put_u32(buf + n, summary->end_time); // local_timestamp без зсуву пояса
+  n += put_u32(buf + n, summary->end_time); // local_timestamp without the time zone offset
   n += put_u16(buf + n, 1);
   buf[n++] = ACTIVITY_MANUAL;
   buf[n++] = EVENT_ACTIVITY;
@@ -374,7 +374,7 @@ static int64_t days_from_civil(int64_t y, unsigned m, unsigned d) {
   return era * 146097 + (int64_t)doe - 719468;
 }
 
-#define FIT_EPOCH_DAYS_FROM_UNIX 7304 /* 1989-12-31 = 631065600 с / 86400 */
+#define FIT_EPOCH_DAYS_FROM_UNIX 7304 /* 1989-12-31 = 631065600 s / 86400 */
 
 uint32_t fit_timestamp_from_utc(uint16_t year, uint8_t month, uint8_t day,
                                 uint8_t hour, uint8_t minute, uint8_t second) {

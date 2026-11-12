@@ -177,11 +177,11 @@ void test_record_data_size_matches_definition(void) {
   TEST_ASSERT_EQUAL(expected, fit_write_record_data(data, &rec));
 }
 
-// Нижче значення з реального файлу COROS PACE 3 (Downloads/479985917885448196.fit)
+// Below are values from a real file from COROS PACE 3 (Downloads/479985917885448196.fit)
 
 void test_record_data_matches_real_ride_point(void) {
-  // запис зі зразка `09 02 f1 8b f6 44 e9 73 6a 23 9d 49 11 11 f0 43 03 00 86
-  // 3a 10 ff 0e`, ті самі значення в нашому порядку полів, каденсу в зразку нема
+  // a record from the sample `09 02 f1 8b f6 44 e9 73 6a 23 9d 49 11 11 f0 43 03 00 86
+  // 3a 10 ff 0e`, the same values in our field order, the sample has no cadence
   const uint8_t expected[] = {0x01, 0xf1, 0x8b, 0xf6, 0x44, 0xe9, 0x73,
                               0x6a, 0x23, 0x9d, 0x49, 0x11, 0x11, 0xf0, 0x43,
                               0x03, 0x00, 0xff, 0x0e, 0x86, 0xff};
@@ -202,7 +202,7 @@ void test_record_data_matches_real_ride_point(void) {
 }
 
 void test_record_data_without_gps_fix_matches_real_sample(void) {
-  // запис без фіксу зі зразка: lat/lon = 0x7FFFFFFF
+  // a record without a fix from the sample: lat/lon = 0x7FFFFFFF
   const uint8_t expected[] = {0x01, 0x42, 0x8a, 0xf6, 0x44, 0xff, 0xff,
                               0xff, 0x7f, 0xff, 0xff, 0xff, 0x7f, 0x80,
                               0x57, 0x00, 0x00, 0xff, 0x02, 0x66, 0xff};
@@ -236,7 +236,7 @@ void test_semicircles_round_trip_real_coordinates(void) {
   }
 }
 
-/* Очікувані значення пораховані незалежно (Python datetime від 1989-12-31). */
+/* Expected values computed independently (Python datetime from 1989-12-31). */
 void test_timestamp_fit_epoch_is_zero(void) {
   TEST_ASSERT_EQUAL_UINT32(0, fit_timestamp_from_utc(1989, 12, 31, 0, 0, 0));
 }
@@ -286,7 +286,7 @@ void test_record_make_with_position_converts_units(void) {
                       FIT_INVALID_UINT8);
   TEST_ASSERT_EQUAL_INT32(fit_degrees_to_semicircles(50.0), r.lat);
   TEST_ASSERT_EQUAL_INT32(fit_degrees_to_semicircles(-30.0), r.lon);
-  TEST_ASSERT_EQUAL_UINT16(10000, r.speed_mm_s); /* 36 км/год = 10 м/с */
+  TEST_ASSERT_EQUAL_UINT16(10000, r.speed_mm_s); /* 36 km/h = 10 m/s */
   TEST_ASSERT_EQUAL_UINT32(200000, r.distance_cm);
   TEST_ASSERT_EQUAL_UINT8(FIT_INVALID_UINT8, r.heart_rate);
   TEST_ASSERT_EQUAL_UINT8(FIT_INVALID_UINT8, r.cadence);

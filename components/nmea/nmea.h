@@ -25,7 +25,7 @@ typedef struct
     float hdop;
 } nmea_gga_t;
 
-/* "$....*HH": XOR байтів між '$' і '*' має збігатися з двома hex-цифрами. */
+/* "$....*HH": XOR of the bytes between '$' and '*' must match the two hex digits. */
 bool nmea_checksum_ok(const char *line);
 
 bool nmea_parse_rmc(const char *line, nmea_rmc_t *out);

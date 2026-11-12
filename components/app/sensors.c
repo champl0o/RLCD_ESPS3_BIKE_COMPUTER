@@ -18,7 +18,7 @@ static const char *TAG = "sensors";
 
 static i2c_master_bus_handle_t i2c_bus_init(void) {
   const i2c_master_bus_config_t cfg = {
-      .i2c_port = -1, /* драйвер сам вибере вільний порт */
+      .i2c_port = -1, /* the driver picks a free port itself */
       .sda_io_num = I2C_SDA_GPIO,
       .scl_io_num = I2C_SCL_GPIO,
       .clk_source = I2C_CLK_SRC_DEFAULT,

@@ -29,13 +29,13 @@ size_t fit_write_file_id_data(uint8_t *buf, uint32_t time_created);
  * cadence: revolutions per minute, FIT_INVALID_UINT8 if no sensor
  */
 typedef struct {
-  uint32_t timestamp;   // секунди від 1989-12-31 (FIT epoch)
-  int32_t lat;          // semicircles, FIT_INVALID_SINT32 якщо немає фіксу
-  int32_t lon;          // semicircles, FIT_INVALID_SINT32 якщо немає фіксу
-  uint32_t distance_cm; // сантиметри
-  uint16_t speed_mm_s;  // мм/с, FIT_INVALID_UINT16 якщо невідомо
-  uint8_t heart_rate;   // уд/хв, FIT_INVALID_UINT8 якщо немає датчика
-  uint8_t cadence;      // об/хв, FIT_INVALID_UINT8 якщо немає датчика
+  uint32_t timestamp;   // seconds since 1989-12-31 (FIT epoch)
+  int32_t lat;          // semicircles, FIT_INVALID_SINT32 if there is no fix
+  int32_t lon;          // semicircles, FIT_INVALID_SINT32 if there is no fix
+  uint32_t distance_cm; // centimetres
+  uint16_t speed_mm_s;  // mm/s, FIT_INVALID_UINT16 if unknown
+  uint8_t heart_rate;   // bpm, FIT_INVALID_UINT8 if there is no sensor
+  uint8_t cadence;      // rpm, FIT_INVALID_UINT8 if there is no sensor
 } fit_record_t;
 
 int32_t fit_degrees_to_semicircles(double degrees);

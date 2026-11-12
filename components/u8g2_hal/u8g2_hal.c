@@ -10,16 +10,16 @@ static const char *TAG = "rlcd";
 static spi_device_handle_t s_spi;
 
 /* ---------------------------------------------------------------------------
- * Навіщо власний буфер передачі.
+ * Why a custom transmit buffer.
  *
- * Драйвер ST7305 віддає кадр шматочками по 6 байтів (u8x8_cad_SendData(...,6,...)).
- * На повний кадр це понад 5000 викликів. Кожен spi_device_polling_transmit()
- * коштує кілька мікросекунд накладних витрат — разом це більше, ніж сама
- * передача даних. Тому накопичуємо байти тут і віддаємо SPI великими шматками.
+ * The ST7305 driver sends the frame in chunks of 6 bytes (u8x8_cad_SendData(...,6,...)).
+ * For a full frame that is over 5000 calls. Each spi_device_polling_transmit()
+ * costs a few microseconds of overhead — together that is more than the
+ * data transfer itself. So we accumulate bytes here and hand them to SPI in big chunks.
  *
- * Критично: буфер треба скидати ПЕРЕД кожною зміною DC і в кінці транзакції.
- * Накопичені байти належать тому рівню DC, що був під час їх накопичення.
- * Забудеш скинути — частина команд поїде як дані, і навпаки.
+ * Critical: the buffer must be flushed BEFORE every DC change and at the end of the transaction.
+ * Accumulated bytes belong to the DC level that was active while they were accumulated.
+ * Forget to flush — and some commands go out as data, and vice versa.
  * --------------------------------------------------------------------------- */
 #define RLCD_TX_BUF_SZ 512
 static uint8_t s_tx_buf[RLCD_TX_BUF_SZ];
@@ -31,7 +31,7 @@ static void tx_flush(void)
         return;
     }
     spi_transaction_t t = {
-        .length    = s_tx_len * 8,   /* УВАГА: довжина в БІТАХ, не в байтах */
+        .length    = s_tx_len * 8,   /* WARNING: the length is in BITS, not bytes */
         .tx_buffer = s_tx_buf,
     };
     ESP_ERROR_CHECK(spi_device_polling_transmit(s_spi, &t));
@@ -46,7 +46,7 @@ uint8_t u8g2_esp32_byte_spi(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *ar
         spi_bus_config_t bus = {
             .sclk_io_num     = RLCD_PIN_SCK,
             .mosi_io_num     = RLCD_PIN_MOSI,
-            .miso_io_num     = -1,   /* у ST7305 немає MISO: читати з панелі нізвідки */
+            .miso_io_num     = -1,   /* the ST7305 has no MISO: there is nothing to read from the panel */
             .quadwp_io_num   = -1,
             .quadhd_io_num   = -1,
             .max_transfer_sz = RLCD_TX_BUF_SZ,
@@ -56,11 +56,11 @@ uint8_t u8g2_esp32_byte_spi(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *ar
         spi_device_interface_config_t dev = {
             .clock_speed_hz = RLCD_SPI_CLOCK_HZ,
             .mode           = 0,     /* display_info.spi_mode = 0 */
-            /* CS тримаємо самі через GPIO, а не апаратним SPI.
-             * Одна транзакція u8g2 (START_TRANSFER..END_TRANSFER) складається
-             * з багатьох окремих spi_device_polling_transmit() із перемиканням DC
-             * між ними. Апаратний CS знімався б після КОЖНОГО transmit, і
-             * контролер сприймав би це як десятки обірваних транзакцій. */
+            /* CS is held by us via GPIO, not by the hardware SPI.
+             * One u8g2 transaction (START_TRANSFER..END_TRANSFER) consists
+             * of many separate spi_device_polling_transmit() calls with DC switching DC
+             * between them. Hardware CS would be released after EVERY transmit, and
+             * the controller would take that for dozens of aborted transactions. */
             .spics_io_num   = -1,
             .queue_size     = 1,
         };
@@ -81,7 +81,7 @@ uint8_t u8g2_esp32_byte_spi(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *ar
     }
 
     case U8X8_MSG_BYTE_SET_DC:
-        tx_flush();                      /* накопичене належить СТАРОМУ рівню DC */
+        tx_flush();                      /* what is accumulated belongs to the OLD DC level DC */
         u8x8_gpio_SetDC(u8x8, arg_int);
         break;
 
@@ -93,7 +93,7 @@ uint8_t u8g2_esp32_byte_spi(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *ar
         break;
 
     case U8X8_MSG_BYTE_END_TRANSFER:
-        tx_flush();                      /* дотиснути хвіст ДО зняття CS */
+        tx_flush();                      /* push out the tail BEFORE releasing CS */
         u8x8_gpio_Delay(u8x8, U8X8_MSG_DELAY_NANO,
                         u8x8->display_info->pre_chip_disable_wait_ns);
         u8x8_gpio_SetCS(u8x8, u8x8->display_info->chip_disable_level);
@@ -123,13 +123,13 @@ uint8_t u8g2_esp32_gpio_and_delay(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, vo
             .intr_type    = GPIO_INTR_DISABLE,
         };
         ESP_ERROR_CHECK(gpio_config(&io));
-        gpio_set_level(RLCD_PIN_CS, 1);   /* CS активний у нулі → 1 = неактивний */
+        gpio_set_level(RLCD_PIN_CS, 1);   /* CS is active low → 1 = inactive */
         break;
     }
 
     case U8X8_MSG_DELAY_MILLI:
-        /* Викликається лише під час reset/init, тому busy-wait тут прийнятний.
-         * vTaskDelay(pdMS_TO_TICKS(1)) при тику 100 Гц дав би 0 тиків = без затримки. */
+        /* Called only during reset/init, so a busy-wait is acceptable here.
+         * vTaskDelay(pdMS_TO_TICKS(1)) with a 100 Hz tick would give 0 ticks = no delay. */
         esp_rom_delay_us((uint32_t)arg_int * 1000);
         break;
 
@@ -139,8 +139,8 @@ uint8_t u8g2_esp32_gpio_and_delay(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, vo
 
     case U8X8_MSG_DELAY_100NANO:
     case U8X8_MSG_DELAY_NANO:
-        /* На 240 МГц один такт ≈ 4 нс. Тайминги SCK/MOSI тримає апаратний SPI;
-         * ці затримки u8g2 просить лише навколо CS/DC, там вистачає кількох тактів. */
+        /* At 240 MHz one cycle ≈ 4 ns. The SCK/MOSI timing is held by the hardware SPI;
+         * u8g2 asks for these delays only around CS/DC, where a few cycles are enough. */
         __asm__ __volatile__("nop; nop; nop; nop;");
         break;
 
@@ -157,7 +157,7 @@ uint8_t u8g2_esp32_gpio_and_delay(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, vo
         break;
 
     default:
-        /* Повернути 1 тут — збрехати бібліотеці, що повідомлення оброблено. */
+        /* Returning 1 here would lie to the library that the message was handled. */
         return 0;
     }
     return 1;
@@ -165,16 +165,16 @@ uint8_t u8g2_esp32_gpio_and_delay(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, vo
 
 void rlcd_init(u8g2_t *u8g2)
 {
-    /* _f = full frame buffer (38*8 x 50*8 тайлів = 15200 байт у .bss).
-     * U8G2_R0 = без повороту: панель фізично 300x400, тобто портрет, як у телефона.
-     * U8G2_R2 — те саме догори дриґом, якщо так буде зручніше кріпити на кермо. */
+    /* _f = full frame buffer (38*8 x 50*8 tiles = 15200 bytes in .bss).
+     * U8G2_R0 = no rotation: the panel is physically 300x400, i.e. portrait, like a phone.
+     * U8G2_R2 — the same upside down, if that is easier to mount on the handlebar. */
     u8g2_Setup_st7305_300x400_f(u8g2, U8G2_R0,
                                 u8g2_esp32_byte_spi,
                                 u8g2_esp32_gpio_and_delay);
 
-    u8g2_InitDisplay(u8g2);        /* сюди входить апаратний reset і init-послідовність */
-    u8g2_SetPowerSave(u8g2, 0);    /* увага: для 300x400 апстрім бере послідовність
-                                    * від 122x250 — поводиться, можливо, не за очікуванням */
+    u8g2_InitDisplay(u8g2);        /* this includes the hardware reset and the init sequence */
+    u8g2_SetPowerSave(u8g2, 0);    /* note: for 300x400 upstream takes the sequence
+                                    * from 122x250 — it may not behave as expected */
 
     ESP_LOGI(TAG, "display ready: %dx%d",
              (int)u8g2_GetDisplayWidth(u8g2), (int)u8g2_GetDisplayHeight(u8g2));

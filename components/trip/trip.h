@@ -23,4 +23,7 @@ typedef struct
 
 const trip_t *trip_get(void);
 void trip_reset(void);
+/* Pause in recording: the next valid fix only sets the anchor point and time,
+ * so the pause duration and the distance to the resume point are not counted. */
+void trip_break(void);
 void trip_update(double lat, double lon, double speed_kmh, double time, bool valid);

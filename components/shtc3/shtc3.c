@@ -1,8 +1,8 @@
 /*
- * SHTC3 за даташитом Sensirion (v4, 2021).
+ * SHTC3 per the datasheet from Sensirion (v4, 2021).
  *
- * Датчик говорить 16-бітними командами, старший байт першим.
- * Між вимірами він спить (~0.3 мкА), тож кожне читання — це
+ * The sensor talks in 16-bit commands, most significant byte first.
+ * Between measurements it sleeps (~0.3 µA), so every reading is a
  * wakeup → measure → read → sleep.
  */
 
@@ -22,8 +22,8 @@ static const char *TAG = "shtc3";
 #define CMD_WAKEUP 0x3517
 #define CMD_SLEEP 0xB098
 #define CMD_READ_ID 0xEFC8
-/* Normal mode, температура першою, БЕЗ clock stretching.
- * Зі stretching датчик тримав би SCL низько ~12 мс — а шина спільна. */
+/* Normal mode, temperature first, WITHOUT clock stretching.
+ * With stretching the sensor would hold SCL low for ~12 ms — and the bus is shared. */
 #define CMD_MEASURE_T_FIRST 0x7866
 
 static esp_err_t send_cmd(shtc3_t *s, uint16_t cmd)
@@ -32,8 +32,8 @@ static esp_err_t send_cmd(shtc3_t *s, uint16_t cmd)
     return i2c_master_transmit(s->dev, buf, sizeof(buf), SHTC3_TIMEOUT_MS);
 }
 
-/* CRC-8: поліном 0x31, старт 0xFF. Кожне 16-бітне слово від датчика
- * йде з власним CRC-байтом. Перевірка з даташиту: crc8({0xBE, 0xEF}) == 0x92. */
+/* CRC-8: polynomial 0x31, start 0xFF. Every 16-bit word from the sensor
+ * comes with its own CRC byte. Check from the datasheet: crc8({0xBE, 0xEF}) == 0x92. */
 static uint8_t crc8(const uint8_t *data, int len)
 {
     uint8_t crc = 0xFF;
@@ -49,8 +49,8 @@ static uint8_t crc8(const uint8_t *data, int len)
 static esp_err_t wakeup(shtc3_t *s)
 {
     esp_err_t err = send_cmd(s, CMD_WAKEUP);
-    /* Даташит: 240 мкс до готовності. vTaskDelay тут не підходить —
-     * тік 10 мс, це в 40 разів більше, ніж треба. */
+    /* Datasheet: 240 µs until ready. vTaskDelay is not suitable here — —
+     * the tick is 10 ms, which is 40 times more than needed. */
     esp_rom_delay_us(300);
     return err;
 }
@@ -64,8 +64,8 @@ esp_err_t shtc3_init(shtc3_t *s, i2c_master_bus_handle_t bus)
     };
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &cfg, &s->dev), TAG, "add device");
 
-    /* Після подачі живлення датчик уже прокинувся, але якщо ESP перезавантажився
-     * без вимкнення живлення — він міг лишитися спати. Wakeup безпечний в обох випадках. */
+    /* After power-up the sensor is already awake, but if the ESP rebooted
+     * without a power cycle — it may have stayed asleep. Wakeup is safe in both cases. */
     ESP_RETURN_ON_ERROR(wakeup(s), TAG, "wakeup");
 
     uint8_t cmd[2] = {CMD_READ_ID >> 8, CMD_READ_ID & 0xFF};
@@ -76,7 +76,7 @@ esp_err_t shtc3_init(shtc3_t *s, i2c_master_bus_handle_t bus)
     if (crc8(id, 2) != id[2])
         return ESP_ERR_INVALID_CRC;
 
-    /* У слові ID значущі лише біти 11 і 5..0 — решта різна між екземплярами. */
+    /* In the ID word only bits 11 and 5..0 are significant — the rest differ between units. */
     uint16_t word = (id[0] << 8) | id[1];
     if ((word & 0x083F) != 0x0807)
     {
@@ -93,14 +93,14 @@ esp_err_t shtc3_read(shtc3_t *s, float *temp_c, float *humidity_pct)
     ESP_RETURN_ON_ERROR(wakeup(s), TAG, "wakeup");
     ESP_RETURN_ON_ERROR(send_cmd(s, CMD_MEASURE_T_FIRST), TAG, "measure");
 
-    /* Вимір триває до 12.1 мс. Поки він іде, датчик NACK-ає свою адресу,
-     * тому читати раніше — отримати помилку. Тік 10 мс, а vTaskDelay(n)
-     * гарантує лише (n-1) повних тіків, тож 3 тіки = щонайменше 20 мс. */
+    /* The measurement takes up to 12.1 ms. While it runs, the sensor NACKs its own address,
+     * so reading earlier gets an error. The tick is 10 ms, and vTaskDelay(n)
+     * guarantees only (n-1) full ticks, so 3 ticks = at least 20 ms. */
     vTaskDelay(pdMS_TO_TICKS(30));
 
     uint8_t raw[6]; /* T_hi T_lo T_crc  RH_hi RH_lo RH_crc */
     esp_err_t err = i2c_master_receive(s->dev, raw, sizeof(raw), SHTC3_TIMEOUT_MS);
-    send_cmd(s, CMD_SLEEP); /* приспати навіть якщо читання впало */
+    send_cmd(s, CMD_SLEEP); /* put it to sleep even if the read failed */
     ESP_RETURN_ON_ERROR(err, TAG, "receive");
 
     if (crc8(&raw[0], 2) != raw[2] || crc8(&raw[3], 2) != raw[5])

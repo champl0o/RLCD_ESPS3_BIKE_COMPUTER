@@ -18,6 +18,9 @@ static const char *TAG = "handlers";
 static esp_timer_handle_t climate_timer;
 static esp_timer_handle_t rtc_timer;
 static esp_timer_handle_t battery_timer;
+// One-shot timers only wake the UI so the hint and banner fade out without a GPS tick.
+static esp_timer_handle_t banner_timer;
+static esp_timer_handle_t hint_timer;
 
 static esp_event_loop_handle_t loop_handle;
 
@@ -33,6 +36,26 @@ static void on_hr_lost_event_handler(void *handler_arg, esp_event_base_t base,
                                      int32_t id, void *event_data);
 
 static void on_sensor_timer(void *arg) { ui_notify((uint32_t)(uintptr_t)arg); }
+
+static void on_ui_wake_timer(void *arg) { ui_notify(UI_REDRAW); }
+
+static void restart_once(esp_timer_handle_t timer, int64_t timeout_us) {
+  // stop returns INVALID_STATE if the timer was not running: that is fine
+  esp_timer_stop(timer);
+  esp_err_t err = esp_timer_start_once(timer, timeout_us);
+  if (err != ESP_OK)
+    ESP_LOGW(TAG, "Failed to arm UI wake timer: %s", esp_err_to_name(err));
+}
+
+static void show_banner(banner_t banner) {
+  model_set_banner(banner);
+  restart_once(banner_timer, UI_BANNER_US);
+}
+
+static void note_press(void) {
+  model_note_press(esp_timer_get_time());
+  restart_once(hint_timer, UI_HINT_AFTER_PRESS_US);
+}
 
 void timers_init(void) {
   const esp_timer_create_args_t climate_timer_args = {
@@ -53,6 +76,18 @@ void timers_init(void) {
       .name = "battery_timer",
   };
 
+  const esp_timer_create_args_t banner_timer_args = {
+      .callback = on_ui_wake_timer,
+      .name = "banner_timer",
+  };
+
+  const esp_timer_create_args_t hint_timer_args = {
+      .callback = on_ui_wake_timer,
+      .name = "hint_timer",
+  };
+
+  ESP_ERROR_CHECK(esp_timer_create(&banner_timer_args, &banner_timer));
+  ESP_ERROR_CHECK(esp_timer_create(&hint_timer_args, &hint_timer));
   ESP_ERROR_CHECK(esp_timer_create(&climate_timer_args, &climate_timer));
   ESP_ERROR_CHECK(esp_timer_create(&rtc_timer_args, &rtc_timer));
   ESP_ERROR_CHECK(esp_timer_create(&battery_timer_args, &battery_timer));
@@ -104,11 +139,15 @@ static void on_gps_event_handler(void *handler_arg, esp_event_base_t base,
 
     double now =
         esp_timer_get_time() / 1000000.0; // Convert microseconds to seconds
-    trip_update(gps_data->lat, gps_data->lon, gps_data->speed_kmh, now,
-                gps_data->valid);
+    // Pause and summary freeze the statistics and the recording.
+    const bool counting = !model_paused() && !model_summary();
+    if (counting)
+      trip_update(gps_data->lat, gps_data->lon, gps_data->speed_kmh, now,
+                  gps_data->valid);
     const trip_t *trip_data = trip_get();
 
     model_apply_gps(gps_data, trip_data);
+
 
     uint32_t timestamp = 0;
     bool has_time = model_fit_time(&timestamp);
@@ -116,7 +155,7 @@ static void on_gps_event_handler(void *handler_arg, esp_event_base_t base,
     if (!model_hr_bpm(&hr_bpm))
       hr_bpm = FIT_INVALID_UINT8;
 
-    if (has_time) {
+    if (has_time && counting) {
       fit_record_t record = fit_record_make(
           timestamp, gps_data->valid, gps_data->lat, gps_data->lon,
           gps_data->speed_kmh, trip_data->dist_km, hr_bpm, FIT_INVALID_UINT8);
@@ -146,6 +185,11 @@ static void on_sd_card_event_handler(void *handler_arg, esp_event_base_t base,
     bool sd_mounted = sd_card_is_mounted();
 
     model_set_sd_mounted(sd_mounted);
+    if (!sd_mounted) {
+      if (model_paused())
+        trip_break(); // ending a pause must not leak into moving_time
+      model_set_recording(false);
+    }
   }
 }
 
@@ -165,6 +209,15 @@ static void on_button_event_handler(void *handler_arg, esp_event_base_t base,
     current_screen_t local_current_screen;
     local_current_screen = model_current_screen();
 
+    note_press();
+    if (model_summary()) {
+      // "any key: continue": the press that closes the summary does nothing else.
+      model_set_summary(false);
+      trip_break();
+      ui_notify(UI_REDRAW);
+      return;
+    }
+
     if (event->btn_id == BTN_KEY && event->gesture == PRESS_SHORT) {
       model_next_screen();
     }
@@ -181,15 +234,37 @@ static void on_button_event_handler(void *handler_arg, esp_event_base_t base,
       if (!sd_mounted || !has_time) {
         ESP_LOGW(TAG, "Cannot start recording: sd_mounted=%d, time known=%d",
                  sd_mounted, has_time);
+        show_banner(sd_mounted ? BANNER_NO_TIME : BANNER_NO_CARD);
       } else if (recorder_start(start_time) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to queue recording start");
+        show_banner(BANNER_START_FAILED);
+      } else if (!model_recording()) {
+        // The recorder ignores a second start, so totals are reset only on a real one.
+        trip_reset();
+        model_set_recording(true);
       }
     }
 
     if (event->btn_id == BTN_BOOT && event->gesture == PRESS_LONG) {
       if (recorder_stop() != ESP_OK)
         ESP_LOGW(TAG, "Failed to queue recording stop");
+      else if (model_recording()) {
+        model_set_recording(false);
+        model_set_summary(true);
+      }
     }
+
+    // Double KEY had no action: now it pauses/resumes the recording.
+    if (event->btn_id == BTN_KEY && event->gesture == PRESS_DOUBLE &&
+        model_recording()) {
+      const bool resuming = model_paused();
+      model_set_paused(!resuming);
+      if (resuming)
+        trip_break(); // the pause must not leak into moving_time
+    }
+
+    // Every press changes the UI: hint, banner, REC, pause, summary.
+    ui_notify(UI_REDRAW);
 
     if (local_current_screen != model_current_screen()) {
       ui_notify(UI_REDRAW);

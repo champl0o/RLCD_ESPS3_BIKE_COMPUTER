@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui_text.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -39,7 +40,15 @@ typedef struct {
   bool rtc_valid;
   uint8_t rtc_hour, rtc_min, rtc_sec, rtc_day, rtc_month, rtc_year;
 
-  /* GPS + поїздка */
+  /* The ride from the UI's point of view: what to show, not how to count it. */
+  bool recording;
+  bool paused;
+  bool summary;               /* show the summary after stopping */
+  banner_t banner;            /* start-error banner, BANNER_NONE means none */
+  ride_ui_state_t ui_state;   /* derived in model_snapshot */
+  bool hint_visible;          /* derived in model_snapshot */
+
+  /* GPS + ride */
   bool gps_valid;
   bool rtc_synced;
   uint8_t utc_hh, utc_mm, utc_ss;
@@ -50,7 +59,7 @@ typedef struct {
   float speed_kmh;
   float max_speed_kmh;
   double average_speed;
-  double dist_m; /* дистанція й час у русі валідні завжди — це накопичене */
+  double dist_m; /* distance and moving time are always valid — they are accumulated */
   uint32_t moving_s;
 
   current_screen_t current_screen;

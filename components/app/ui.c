@@ -19,9 +19,41 @@ void ui_notify(uint32_t bits) {
     xTaskNotify(ui_task_handle, bits, eSetBits);
 }
 
+#ifdef UI_DEMO_STATES
+/* Bench-only screen preview (build with -DUI_DEMO_STATES): every 3 s
+ * cycles through states and banners that no logic produces yet. */
+static void demo_override(screen_data_t *s) {
+  static const struct {
+    ride_ui_state_t state;
+    banner_t banner;
+    bool recording;
+    bool paused;
+  } steps[] = {
+      {UI_RIDE_READY, BANNER_NONE, false, false},
+      {UI_RIDE_READY, BANNER_NO_CARD, false, false},
+      {UI_RIDE_READY, BANNER_NO_TIME, false, false},
+      {UI_RIDE_READY, BANNER_START_FAILED, false, false},
+      {UI_RIDE_RIDING, BANNER_NONE, true, false},
+      {UI_RIDE_PAUSED, BANNER_NONE, true, true},
+      {UI_RIDE_SUMMARY, BANNER_NONE, false, false},
+  };
+  const int n = sizeof(steps) / sizeof(steps[0]);
+  const int i = (int)((esp_timer_get_time() / 3000000LL) % n);
+
+  s->ui_state = steps[i].state;
+  s->banner = steps[i].banner;
+  s->recording = steps[i].recording;
+  s->paused = steps[i].paused;
+  s->hint_visible = true;
+}
+#endif
+
 void ui_draw_current_screen(void) {
   screen_data_t snapshot;
   model_snapshot(&snapshot);
+#ifdef UI_DEMO_STATES
+  demo_override(&snapshot);
+#endif
 
   snapshot.uptime_s = (uint32_t)(esp_timer_get_time() / 1000000LL);
 

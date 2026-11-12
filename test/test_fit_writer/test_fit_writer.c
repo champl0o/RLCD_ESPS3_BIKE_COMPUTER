@@ -10,7 +10,7 @@
 #define EVENT_DATA_LEN 8
 #define RECORD_DEF_LEN 27
 #define RECORD_DATA_LEN 21
-// event(stop) + lap + session + activity, кожне з definition
+// event(stop) + lap + session + activity, each with a definition
 #define SUMMARY_LEN (EVENT_DATA_LEN + (33 + 28) + (39 + 31) + (27 + 18))
 #define BEFORE_FIRST_RECORD                                                    \
   (HEADER_LEN + FILE_ID_DEF_LEN + FILE_ID_DATA_LEN + EVENT_DEF_LEN +           \
@@ -94,7 +94,7 @@ void test_file_with_records_has_expected_size(void) {
 }
 
 void test_session_summary_comes_from_records(void) {
-  write_file(11); // 11 записів, відстань 5000 см, 10 с між першим і останнім
+  write_file(11); // 11 records, distance 5000 cm, 10 s between the first and the last
   size_t activity = file_len - 2 - 18;
   uint32_t ts, timer_ms;
   memcpy(&ts, file_bytes + activity + 1, sizeof(ts));
@@ -111,7 +111,7 @@ void test_session_summary_comes_from_records(void) {
   memcpy(&max, file_bytes + session + 1 + 4 + 4 + 2 + 4 + 4 + 4 + 2,
          sizeof(max));
   TEST_ASSERT_EQUAL(5000, distance_cm);
-  TEST_ASSERT_EQUAL(5000, avg); // 50 м за 10 с = 5 м/с
+  TEST_ASSERT_EQUAL(5000, avg); // 50 m in 10 s = 5 m/s
   TEST_ASSERT_EQUAL(7500, max);
 }
 

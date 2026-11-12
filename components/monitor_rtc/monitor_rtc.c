@@ -3,10 +3,10 @@
 #define PCF85063A_ADDR 0x51
 #define REG_CTRL1 0x00
 #define REG_CTRL2 0x01
-#define REG_SECONDS 0x04      // §7.1: час 04h..0Ah
-#define CTRL1_CAP_12P5 0x01   // CAP_SEL: під кварц з CL = 12.5 pF
+#define REG_SECONDS 0x04      // §7.1: time 04h..0Ah
+#define CTRL1_CAP_12P5 0x01   // CAP_SEL: for a crystal with CL = 12.5 pF
 #define CTRL1_SW_RESET 0x58   // §7.2.1.3
-#define CTRL2_CLKOUT_OFF 0x07 // COF = 111, CLKOUT вимкнено
+#define CTRL2_CLKOUT_OFF 0x07 // COF = 111, CLKOUT disabled
 #define SEC_OS 0x80           // Oscillator Stop
 #define TIMEOUT_MS 100
 
@@ -57,7 +57,7 @@ esp_err_t monitor_rtc_get_time(monitor_rtc_t *rtc, struct tm *out) {
 esp_err_t monitor_rtc_set_time(monitor_rtc_t *rtc, const struct tm *in) {
   uint8_t buf[8] = {
       REG_SECONDS,
-      bin2bcd(in->tm_sec), // OS=0: скидаємо прапорець
+      bin2bcd(in->tm_sec), // OS=0: clear the flag
       bin2bcd(in->tm_min),
       bin2bcd(in->tm_hour),
       bin2bcd(in->tm_mday),

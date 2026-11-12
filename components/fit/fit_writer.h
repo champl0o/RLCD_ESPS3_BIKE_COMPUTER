@@ -6,7 +6,7 @@
 
 typedef struct {
   FILE *file;
-  uint32_t data_size; // байти повідомлень, без заголовка і кінцевого CRC
+  uint32_t data_size; // message bytes, without the header and the trailing CRC
   uint32_t start_time;
   uint32_t last_time;
   uint32_t last_distance_cm;

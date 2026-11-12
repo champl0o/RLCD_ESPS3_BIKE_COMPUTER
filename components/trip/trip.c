@@ -57,6 +57,11 @@ void trip_reset(void)
     trip = (trip_t){0};
 }
 
+void trip_break(void)
+{
+    trip.has_last_coordinates = false;
+}
+
 void trip_update(double lat, double lon, double speed_kmh, double time, bool valid)
 {
     if (!valid)

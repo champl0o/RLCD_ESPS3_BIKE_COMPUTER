@@ -9,6 +9,9 @@
 #define FIT_HR_MAX 254      // 255 is FIT_INVALID_UINT8
 
 static screen_data_t data = {0};
+static int64_t last_press_us;      // 0 — never pressed
+static int64_t boot_grace_end_us;  // the hint is always visible until this time
+static int64_t banner_until_us;    // when the start-error banner fades
 
 // rtos-related synchronization primitives and event handling
 static SemaphoreHandle_t data_mutex;
@@ -18,12 +21,21 @@ static void unlock_data_mutex(void);
 static bool fit_time_from_data(const screen_data_t *d, uint32_t *out);
 static bool hr_is_fresh(const screen_data_t *d, int64_t now_us);
 
+static ride_ui_state_t derive_ui_state(const screen_data_t *d) {
+  if (d->summary)
+    return UI_RIDE_SUMMARY;
+  if (!d->recording)
+    return UI_RIDE_READY;
+  return d->paused ? UI_RIDE_PAUSED : UI_RIDE_RIDING;
+}
+
 esp_err_t model_init(void) {
   data_mutex = xSemaphoreCreateMutex();
   if (!data_mutex) {
     return ESP_FAIL;
   }
   data.current_screen = SCREEN_MINIMAL;
+  boot_grace_end_us = esp_timer_get_time() + UI_HINT_AT_BOOT_US;
 
   return ESP_OK;
 }
@@ -31,7 +43,15 @@ esp_err_t model_init(void) {
 void model_snapshot(screen_data_t *out) {
   lock_data_mutex();
   *out = data;
-  out->hr_valid = hr_is_fresh(&data, esp_timer_get_time());
+  int64_t now_us = esp_timer_get_time();
+  out->hr_valid = hr_is_fresh(&data, now_us);
+  out->ui_state = derive_ui_state(&data);
+  out->hint_visible =
+      ui_hint_visible(out->ui_state, now_us, boot_grace_end_us, last_press_us);
+  if (data.banner != BANNER_NONE && now_us >= banner_until_us) {
+    data.banner = BANNER_NONE;
+    out->banner = BANNER_NONE;
+  }
   unlock_data_mutex();
 }
 
@@ -106,6 +126,60 @@ bool model_sd_mounted(void) {
   unlock_data_mutex();
 
   return mounted;
+}
+
+void model_set_recording(bool recording) {
+  lock_data_mutex();
+  data.recording = recording;
+  if (!recording)
+    data.paused = false;
+  unlock_data_mutex();
+}
+
+void model_set_paused(bool paused) {
+  lock_data_mutex();
+  data.paused = paused;
+  unlock_data_mutex();
+}
+
+void model_set_summary(bool summary) {
+  lock_data_mutex();
+  data.summary = summary;
+  unlock_data_mutex();
+}
+
+void model_set_banner(banner_t banner) {
+  lock_data_mutex();
+  data.banner = banner;
+  banner_until_us = esp_timer_get_time() + UI_BANNER_US;
+  unlock_data_mutex();
+}
+
+void model_note_press(int64_t now_us) {
+  lock_data_mutex();
+  last_press_us = now_us;
+  unlock_data_mutex();
+}
+
+bool model_recording(void) {
+  lock_data_mutex();
+  bool recording = data.recording;
+  unlock_data_mutex();
+  return recording;
+}
+
+bool model_paused(void) {
+  lock_data_mutex();
+  bool paused = data.paused;
+  unlock_data_mutex();
+  return paused;
+}
+
+bool model_summary(void) {
+  lock_data_mutex();
+  bool summary = data.summary;
+  unlock_data_mutex();
+  return summary;
 }
 
 void model_apply_gps(const gps_data_t *gps, const trip_t *trip_data) {

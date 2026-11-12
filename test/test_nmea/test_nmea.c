@@ -2,7 +2,7 @@
 #include "unity.h"
 #include <string.h>
 
-/* Канонічні приклади NMEA з перерахованими контрольними сумами. */
+/* Canonical NMEA examples with recomputed checksums. */
 #define RMC_FIX                                                                \
   "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A"
 #define RMC_VOID "$GPRMC,123519,V,,,,,,,230394,,*33"
@@ -54,7 +54,7 @@ void test_rmc_with_fix_parses_position_time_and_speed(void) {
   TEST_ASSERT_TRUE(r.time_valid);
   TEST_ASSERT_DOUBLE_WITHIN(1e-4, 48.1173, r.lat_deg);
   TEST_ASSERT_DOUBLE_WITHIN(1e-4, 11.516667, r.lon_deg);
-  TEST_ASSERT_FLOAT_WITHIN(0.05, 41.48, r.speed_kmh); /* 22.4 уз × 1.852 */
+  TEST_ASSERT_FLOAT_WITHIN(0.05, 41.48, r.speed_kmh); /* 22.4 kn × 1.852 */
   TEST_ASSERT_EQUAL_UINT8(12, r.hh);
   TEST_ASSERT_EQUAL_UINT8(35, r.mm);
   TEST_ASSERT_EQUAL_UINT8(19, r.ss);
@@ -97,7 +97,7 @@ void test_rmc_rejects_bad_input_and_leaves_output_untouched(void) {
   TEST_ASSERT_FALSE(nmea_parse_rmc(
       "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*00",
       &r));
-  TEST_ASSERT_FALSE(nmea_parse_rmc(GGA_GOOD, &r)); /* чужий тип речення */
+  TEST_ASSERT_FALSE(nmea_parse_rmc(GGA_GOOD, &r)); /* a foreign sentence type */
   TEST_ASSERT_FALSE(nmea_parse_rmc("$GPRMC,123519,A,4807.038", &r));
   TEST_ASSERT_FALSE(nmea_parse_rmc(NULL, &r));
   TEST_ASSERT_DOUBLE_WITHIN(1e-9, 1.5, r.lat_deg);
@@ -144,8 +144,8 @@ void test_gga_rejects_bad_input(void) {
       &g));
 }
 
-/* Відома межа: приймаємо лише talker "GP". Приймачі з кількома системами
- * (GLONASS, Galileo) шлють "$GN...", їх зараз ігноруємо. */
+/* Known limit: we accept only the talker "GP". Receivers with several systems
+ * (GLONASS, Galileo) send "$GN...", we ignore them for now. */
 void test_gn_talker_is_accepted(void) {
   TEST_IGNORE_MESSAGE("known limitation: only $GPRMC/$GPGGA are parsed");
   nmea_rmc_t r;

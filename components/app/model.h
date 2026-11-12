@@ -17,6 +17,14 @@ bool model_hr_bpm(uint8_t *out);
 void model_set_hr(uint16_t bpm, bool contact_supported, bool contact_detected);
 void model_clear_hr(void);
 bool model_sd_mounted(void);
+void model_set_recording(bool recording); /* false also clears the pause */
+void model_set_paused(bool paused);
+void model_set_summary(bool summary);
+void model_set_banner(banner_t banner); /* fades by itself after UI_BANNER_US */
+void model_note_press(int64_t now_us);
+bool model_recording(void);
+bool model_paused(void);
+bool model_summary(void);
 void model_apply_gps(const gps_data_t *gps, const trip_t *trip_data);
 void model_next_screen(void);
 void model_reset_screen(void);

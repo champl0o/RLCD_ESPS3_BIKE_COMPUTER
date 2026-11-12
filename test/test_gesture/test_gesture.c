@@ -11,7 +11,7 @@ void setUp(void) {
 
 void tearDown(void) {}
 
-/* Кожен рядок таблиці переходів окремо. */
+/* Each row of the transition table separately. */
 
 void test_idle_press_goes_down_and_arms_long_press_deadline(void) {
   TEST_ASSERT_EQUAL(GESTURE_NONE, handle_event(&b, PRESS, T0));
@@ -59,7 +59,7 @@ void test_release_after_double_returns_to_idle_silently(void) {
   TEST_ASSERT_EQUAL(IDLE, b.state);
 }
 
-/* Події, яких у таблиці для цього стану немає, нічого не міняють. */
+/* Events that the table has no entry for in this state change nothing. */
 
 void test_unlisted_events_are_ignored(void) {
   struct {
@@ -80,7 +80,7 @@ void test_unlisted_events_are_ignored(void) {
   }
 }
 
-/* Повні жести: порядок подій такий, як його видасть button.c. */
+/* Full gestures: the event order is the one button.c will produce. */
 
 void test_full_short_click(void) {
   handle_event(&b, PRESS, T0);

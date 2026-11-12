@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""PNG -> .ico для SD-карти (формат описано в docs/icons-sd.md / у звіті).
+"""PNG -> .ico for the SD card (format described in docs/icons-sd.md / in the report)).
 
-Формат файлу (little-endian не потрібен, усе по 1 байту):
-  байт 0   'I'  (magic)
-  байт 1   '1'  (версія формату / 1 біт на піксель)
-  байт 2   w    (1..255)
-  байт 3   h    (1..255)
-  байти 4… XBM-дані: h рядків по ceil(w/8) байтів, у байті молодший біт = лівий
-           піксель (рівно те, що очікує u8g2_DrawXBM). Біт 1 = «чорнило».
+File format (little-endian is not needed, everything is 1 byte each):
+  byte 0   'I'  (magic)
+  byte 1   '1'  (format version / 1 bit per pixel)
+  byte 2   w    (1..255)
+  byte 3   h    (1..255)
+  bytes 4… XBM data: h rows of ceil(w/8) bytes, in a byte the low bit = the left
+           pixel (exactly what u8g2_DrawXBM expects). Bit 1 = "ink".
 
-Використання:
+Usage:
   python3 tools/png2icon.py assets/icons_src/*.png -o assets/sd/icons
   python3 tools/png2icon.py x.png --threshold 128 --invert
-Прозорий піксель (alpha < 128) = 0. Темніше за поріг = 1 (чорнило).
+Transparent pixel (alpha < 128) = 0. Darker than the threshold = 1 (ink)).
 """
 import argparse, sys
 from pathlib import Path
@@ -23,7 +23,7 @@ def convert(path, threshold, invert):
     w, h = im.size
     if not (1 <= w <= 255 and 1 <= h <= 255):
         sys.exit(f"{path}: розмір {w}x{h} поза 1..255")
-    # композит на білому: прозоре -> біле -> 0
+    # composite on white: transparent -> white -> 0
     bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
     gray = Image.alpha_composite(bg, im).convert("L")
     px = gray.load()
@@ -36,7 +36,7 @@ def convert(path, threshold, invert):
             if invert:
                 ink = not ink
             if ink:
-                row[x // 8] |= 1 << (x % 8)   # LSB = лівий піксель
+                row[x // 8] |= 1 << (x % 8)   # LSB = left pixel
         out += row
     return bytes(out)
 

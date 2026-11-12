@@ -5,13 +5,13 @@ void draw_detailed_screen(u8g2_t *u8g2, const screen_data_t *d)
 {
     const int row_h = 24;
     char buf[32];
-    int n = 1; /* наскрізний номер рядка даних */
+    int n = 1; /* running number of the data row */
 
     u8g2_ClearBuffer(u8g2);
     draw_status_bar(u8g2, d);
 
-    /* Таблиця «підпис ліворуч — значення праворуч», рядки по 24 px, групи з підписом.
-     * top — верх наступного елемента; базова лінія рядка на 16 px нижче. */
+    /* Table "label on the left, value on the right", 24 px rows, groups with a caption.
+     * top — the top of the next element; the row baseline is 16 px lower. */
     int top = 36;
 
     draw_group_label(u8g2, "MOTION", top);
@@ -93,5 +93,5 @@ void draw_detailed_screen(u8g2_t *u8g2, const screen_data_t *d)
         snprintf(buf, sizeof(buf), "--");
     draw_row_bar(u8g2, n++, "BATTERY", buf, top + 16, d->battery_valid ? d->battery_pct : 0);
 
-    draw_page_tabs(u8g2, SCREEN_DETAILED);
+    draw_bottom_strip(u8g2, d, SCREEN_DETAILED);
 }

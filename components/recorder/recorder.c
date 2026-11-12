@@ -16,7 +16,7 @@
 #define RECORDER_POLL_MS 1000           /* wake up to sync with no messages */
 #define PATH_SIZE 64
 #define TMP_SUFFIX ".tmp"
-#define FIT_EPOCH_UNIX_OFFSET 631065600 /* 1989-12-31 у Unix-секундах */
+#define FIT_EPOCH_UNIX_OFFSET 631065600 /* 1989-12-31 in Unix seconds */
 
 typedef enum {
   MSG_START = 0,
