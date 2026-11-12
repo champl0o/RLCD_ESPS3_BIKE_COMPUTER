@@ -1,6 +1,5 @@
 #include "handlers.h"
 #include "ble_parse.h"
-#include "esp_event_base.h"
 #include "esp_timer.h"
 #include "event_orchestrator.h"
 #include "fit.h"
@@ -219,7 +218,7 @@ static void on_hr_event_handler(void *handler_arg, esp_event_base_t base,
 
     ui_notify(UI_REDRAW);
 
-    ESP_LOGI(
+    ESP_LOGD(
         TAG, "HR updated: bpm=%d, contact_supported=%d, contact_detected=%d",
         hr_data->bpm, hr_data->contact_supported, hr_data->contact_detected);
   }

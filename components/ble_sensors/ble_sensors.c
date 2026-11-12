@@ -2,7 +2,6 @@
 #include "ble_parse.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs_adv.h"
-#include "nvs_flash.h"
 
 #include "esp_log.h"
 #include "host/ble_hs.h"
@@ -42,15 +41,7 @@ static void host_task(void *param);
 void ble_sensors_init(ble_hr_cb_t on_hr, ble_lost_cb_t on_lost) {
   hr_callback = on_hr;
   lost_callback = on_lost;
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-      ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(ret);
-
-  ret = nimble_port_init();
+  esp_err_t ret = nimble_port_init();
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Failed to init nimble %d", ret);
     return;

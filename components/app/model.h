@@ -3,7 +3,6 @@
 #include "gps.h"
 #include "screen.h"
 #include "trip.h"
-#include <ble_parse.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
