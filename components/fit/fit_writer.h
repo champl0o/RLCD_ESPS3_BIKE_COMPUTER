@@ -17,3 +17,11 @@ int fit_writer_open(fit_writer_t *writer, const char *path,
                     uint32_t time_created);
 int fit_writer_add_record(fit_writer_t *writer, const fit_record_t *record);
 int fit_writer_close(fit_writer_t *writer);
+
+/* Pushes everything written so far to the storage (fflush + fsync), so a power
+ * cut loses at most the records since the last sync. */
+int fit_writer_sync(fit_writer_t *writer);
+
+/* Closes the file without writing the summary, header size or CRC: used when
+ * the card is failing and the partial file is kept for later repair. */
+void fit_writer_abort(fit_writer_t *writer);

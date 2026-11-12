@@ -1,3 +1,4 @@
 idf_component_register(SRCS "gps.c"
                        INCLUDE_DIRS "."
-                       REQUIRES esp_driver_uart nmea)
+                       REQUIRES esp_driver_uart nmea
+                       PRIV_REQUIRES esp_timer)

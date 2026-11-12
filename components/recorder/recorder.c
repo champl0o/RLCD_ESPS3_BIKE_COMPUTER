@@ -12,6 +12,10 @@
 #define RECORDER_QUEUE_LENGTH 16
 #define RECORDER_TASK_STACK 6144
 #define RECORDER_TASK_PRIORITY 3
+#define RECORDER_FSYNC_INTERVAL_MS 5000 /* start value, to be measured */
+#define RECORDER_POLL_MS 1000           /* wake up to sync with no messages */
+#define PATH_SIZE 64
+#define TMP_SUFFIX ".tmp"
 #define FIT_EPOCH_UNIX_OFFSET 631065600 /* 1989-12-31 у Unix-секундах */
 
 typedef enum {
@@ -26,9 +30,19 @@ typedef struct {
   fit_record_t record;
 } recorder_msg_t;
 
+typedef enum {
+  REC_IDLE = 0,
+  REC_RECORDING,
+  REC_FAILED, /* write or sync failed: partial .tmp kept, records dropped */
+} recorder_mode_t;
+
 typedef struct {
   fit_writer_t writer;
-  bool recording;
+  recorder_mode_t mode;
+  char path[PATH_SIZE];
+  char tmp_path[PATH_SIZE + sizeof(TMP_SUFFIX)];
+  TickType_t last_sync;
+  uint32_t lost_records;
 } recorder_state_t;
 
 static const char *TAG = "recorder";
@@ -60,72 +74,117 @@ static void build_path(char *path, size_t size, uint32_t fit_time) {
            tm_utc.tm_hour, tm_utc.tm_min, tm_utc.tm_sec);
 }
 
+static void fail_recording(recorder_state_t *st, const char *why) {
+  ESP_LOGE(TAG, "%s: card lost? Stopping, partial data kept in %s", why,
+           st->tmp_path);
+  fit_writer_abort(&st->writer);
+  st->mode = REC_FAILED;
+}
+
 static void handle_start(recorder_state_t *st, uint32_t start_time) {
-  if (st->recording) {
+  if (st->mode == REC_RECORDING) {
     ESP_LOGW(TAG, "Start ignored: already recording");
     return;
   }
+  if (st->mode == REC_FAILED) {
+    ESP_LOGI(TAG, "Retrying after a failed recording");
+    st->mode = REC_IDLE;
+  }
 
-  char path[64];
-  build_path(path, sizeof(path), start_time);
-  if (fit_writer_open(&st->writer, path, start_time) != 0) {
-    ESP_LOGE(TAG, "Failed to open %s", path);
+  build_path(st->path, sizeof(st->path), start_time);
+  snprintf(st->tmp_path, sizeof(st->tmp_path), "%s" TMP_SUFFIX, st->path);
+  if (fit_writer_open(&st->writer, st->tmp_path, start_time) != 0) {
+    ESP_LOGE(TAG, "Failed to open %s", st->tmp_path);
     return;
   }
 
-  st->recording = true;
-  ESP_LOGI(TAG, "Recording to %s", path);
+  st->mode = REC_RECORDING;
+  st->last_sync = xTaskGetTickCount();
+  st->lost_records = 0;
+  ESP_LOGI(TAG, "Recording to %s", st->tmp_path);
 }
 
 static void handle_record(recorder_state_t *st, const fit_record_t *record) {
-  if (!st->recording)
+  if (st->mode == REC_FAILED) {
+    st->lost_records++;
+    return;
+  }
+  if (st->mode != REC_RECORDING)
     return;
 
-  if (fit_writer_add_record(&st->writer, record) != 0) {
-    ESP_LOGE(TAG, "Write failed, closing file");
-    fit_writer_close(&st->writer);
-    st->recording = false;
-  }
+  if (fit_writer_add_record(&st->writer, record) != 0)
+    fail_recording(st, "Write failed");
+}
+
+/* Flush to the card on a timer: a power cut then loses a few seconds of
+ * records, not the whole file. */
+static void sync_if_due(recorder_state_t *st) {
+  if (st->mode != REC_RECORDING)
+    return;
+  if (xTaskGetTickCount() - st->last_sync <
+      pdMS_TO_TICKS(RECORDER_FSYNC_INTERVAL_MS))
+    return;
+
+  st->last_sync = xTaskGetTickCount();
+  if (fit_writer_sync(&st->writer) != 0)
+    fail_recording(st, "Sync failed");
 }
 
 static void handle_stop(recorder_state_t *st) {
-  if (!st->recording) {
+  if (st->mode == REC_FAILED) {
+    ESP_LOGW(TAG, "Stop: recording had failed (%" PRIu32 " records lost), %s "
+                  "kept for repair",
+             st->lost_records, st->tmp_path);
+    st->mode = REC_IDLE;
+    return;
+  }
+  if (st->mode != REC_RECORDING) {
     ESP_LOGW(TAG, "Stop ignored: not recording");
     return;
   }
 
-  st->recording = false;
+  st->mode = REC_IDLE;
   if (fit_writer_close(&st->writer) != 0) {
-    ESP_LOGE(TAG, "Failed to close file cleanly");
+    ESP_LOGE(TAG, "Failed to close file cleanly, %s kept for repair",
+             st->tmp_path);
     return;
   }
 
-  ESP_LOGI(TAG, "Recording saved (%" PRIu32 " bytes of data)",
+  /* Only a cleanly closed file gets the real name. */
+  if (rename(st->tmp_path, st->path) != 0) {
+    ESP_LOGE(TAG, "Failed to rename %s to %s", st->tmp_path, st->path);
+    return;
+  }
+
+  ESP_LOGI(TAG, "Recording saved to %s (%" PRIu32 " bytes of data)", st->path,
            st->writer.data_size);
   ESP_LOGI(TAG, "Stack high water mark: %u bytes",
            (unsigned)uxTaskGetStackHighWaterMark(NULL));
 }
 
 static void recorder_task(void *arg) {
-  recorder_state_t state = {.recording = false};
+  recorder_state_t state = {.mode = REC_IDLE};
   recorder_msg_t msg;
 
   ESP_LOGI(TAG, "Recorder task started");
 
   for (;;) {
-    xQueueReceive(recorder_queue, &msg, portMAX_DELAY);
-
-    switch (msg.type) {
-    case MSG_START:
-      handle_start(&state, msg.start_time);
-      break;
-    case MSG_RECORD:
-      handle_record(&state, &msg.record);
-      break;
-    case MSG_STOP:
-      handle_stop(&state);
-      break;
+    if (xQueueReceive(recorder_queue, &msg, pdMS_TO_TICKS(RECORDER_POLL_MS)) ==
+        pdTRUE) {
+      switch (msg.type) {
+      case MSG_START:
+        handle_start(&state, msg.start_time);
+        break;
+      case MSG_RECORD:
+        handle_record(&state, &msg.record);
+        break;
+      case MSG_STOP:
+        handle_stop(&state);
+        break;
+      }
     }
+
+    sync_if_due(&state);
   }
 }
 

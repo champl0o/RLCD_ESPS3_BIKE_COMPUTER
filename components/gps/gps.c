@@ -1,12 +1,16 @@
+#include "esp_timer.h"
 #include "gps.h"
 
 static const char *TAG = "gps";
+
+#define GPS_STALE_US (3 * 1000000LL) /* no RMC for this long: fix is lost */
 
 static uint8_t gps_data[UART_BUFFER_SIZE];
 static int gps_data_len;
 
 static gps_cb_t gps_callback = NULL;
 static gps_data_t current_gps_data = {0};
+static int64_t last_rmc_us;
 
 static void nullify_current_gps_data(void);
 
@@ -30,6 +34,8 @@ static void apply_gga(const nmea_gga_t *g) {
 }
 
 static void apply_rmc(const nmea_rmc_t *r, gps_cb_t cb) {
+  last_rmc_us = esp_timer_get_time(); /* the receiver is alive, fix or not */
+
   if (!r->fix) {
     nullify_current_gps_data();
     if (cb)
@@ -100,11 +106,27 @@ int gps_poll(gps_cb_t cb) {
   return gps_data_len;
 }
 
+/* A silent receiver (cable off, module reset) must not keep the last fix on
+ * screen forever, so drop it and tell the app once. */
+static void expire_if_stale(gps_cb_t cb) {
+  if (!current_gps_data.valid)
+    return;
+  if (esp_timer_get_time() - last_rmc_us < GPS_STALE_US)
+    return;
+
+  ESP_LOGW(TAG, "No GPS data for %d s, fix lost",
+           (int)(GPS_STALE_US / 1000000LL));
+  nullify_current_gps_data();
+  if (cb)
+    cb(&current_gps_data);
+}
+
 static void gps_task(void *arg) {
   gps_cb_t cb = (gps_cb_t)arg;
 
   while (1) {
     gps_poll(cb);
+    expire_if_stale(cb);
   }
 }
 

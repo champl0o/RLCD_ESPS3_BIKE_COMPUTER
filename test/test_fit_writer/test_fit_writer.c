@@ -120,6 +120,63 @@ void test_open_fails_for_unwritable_path(void) {
   TEST_ASSERT_EQUAL(-1, fit_writer_open(&w, "/nonexistent-dir/x.fit", 0));
 }
 
+static void add_records(fit_writer_t *w, size_t records) {
+  for (size_t i = 0; i < records; i++) {
+    fit_record_t r = {.timestamp = 0x44F6BE78 + i,
+                      .lat = fit_degrees_to_semicircles(50.0),
+                      .lon = fit_degrees_to_semicircles(30.5),
+                      .distance_cm = (uint32_t)(i * 500),
+                      .speed_mm_s = 7500,
+                      .heart_rate = FIT_INVALID_UINT8,
+                      .cadence = FIT_INVALID_UINT8};
+    TEST_ASSERT_EQUAL(0, fit_writer_add_record(w, &r));
+  }
+}
+
+void test_sync_makes_written_records_visible_on_disk(void) {
+  fit_writer_t w;
+  TEST_ASSERT_EQUAL(0, fit_writer_open(&w, TEST_PATH, 0x44F6BE78));
+  add_records(&w, 2);
+  TEST_ASSERT_EQUAL(0, fit_writer_sync(&w));
+
+  /* The writer is still open: a second handle sees only what reached disk. */
+  read_back();
+  TEST_ASSERT_EQUAL(BEFORE_FIRST_RECORD + 2 * RECORD_DATA_LEN, file_len);
+
+  TEST_ASSERT_EQUAL(0, fit_writer_close(&w));
+}
+
+void test_sync_on_closed_writer_fails(void) {
+  fit_writer_t w;
+  TEST_ASSERT_EQUAL(0, fit_writer_open(&w, TEST_PATH, 0x44F6BE78));
+  TEST_ASSERT_EQUAL(0, fit_writer_close(&w));
+  TEST_ASSERT_EQUAL(-1, fit_writer_sync(&w));
+}
+
+void test_abort_keeps_partial_file_without_summary_or_crc(void) {
+  fit_writer_t w;
+  TEST_ASSERT_EQUAL(0, fit_writer_open(&w, TEST_PATH, 0x44F6BE78));
+  add_records(&w, 3);
+  fit_writer_abort(&w);
+
+  TEST_ASSERT_NULL(w.file);
+  read_back();
+  TEST_ASSERT_EQUAL(BEFORE_FIRST_RECORD + 3 * RECORD_DATA_LEN, file_len);
+
+  /* Header still says data_size = 0: the file is not finalised. */
+  uint32_t data_size;
+  memcpy(&data_size, file_bytes + 4, sizeof(data_size));
+  TEST_ASSERT_EQUAL(0, data_size);
+}
+
+void test_abort_is_safe_twice_and_after_close(void) {
+  fit_writer_t w;
+  TEST_ASSERT_EQUAL(0, fit_writer_open(&w, TEST_PATH, 0x44F6BE78));
+  fit_writer_abort(&w);
+  fit_writer_abort(&w);
+  TEST_ASSERT_NULL(w.file);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_file_without_records_has_expected_size);
@@ -131,5 +188,9 @@ int main(void) {
   RUN_TEST(test_file_with_records_has_expected_size);
   RUN_TEST(test_session_summary_comes_from_records);
   RUN_TEST(test_open_fails_for_unwritable_path);
+  RUN_TEST(test_sync_makes_written_records_visible_on_disk);
+  RUN_TEST(test_sync_on_closed_writer_fails);
+  RUN_TEST(test_abort_keeps_partial_file_without_summary_or_crc);
+  RUN_TEST(test_abort_is_safe_twice_and_after_close);
   return UNITY_END();
 }

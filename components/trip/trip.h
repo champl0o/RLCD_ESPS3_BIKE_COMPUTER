@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 #define MIN_SPEED 2           // km/h
-#define EARTH_RADIUS_KM .6371 // Earth radius in kilometers
+#define EARTH_RADIUS_KM 6371.0 // Earth radius in kilometers
 #define DEG_TO_RAD (3.141592653589793 / 180.0)
 
 typedef struct

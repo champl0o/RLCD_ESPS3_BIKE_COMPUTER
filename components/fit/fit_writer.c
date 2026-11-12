@@ -1,5 +1,6 @@
 #include "fit_writer.h"
 #include <string.h>
+#include <unistd.h>
 
 #define MAX_MESSAGE_SIZE 64
 #define CRC_CHUNK_SIZE 256
@@ -116,4 +117,21 @@ int fit_writer_close(fit_writer_t *writer) {
   }
   writer->file = NULL;
   return result;
+}
+
+int fit_writer_sync(fit_writer_t *writer) {
+  if (!writer->file) {
+    return -1;
+  }
+  if (fflush(writer->file) != 0) {
+    return -1;
+  }
+  return fsync(fileno(writer->file)) == 0 ? 0 : -1;
+}
+
+void fit_writer_abort(fit_writer_t *writer) {
+  if (writer->file) {
+    fclose(writer->file);
+    writer->file = NULL;
+  }
 }
